@@ -17,7 +17,7 @@
             {-| let var = expr in statement-}
 
 {-expr ::= const | var | (expr) | unOp expr | expr binOp expr-}
-{-const ::= Int | Float | Bool-}
+{-const ::= Int | Float | Bool | String -}
 {-unOp ::= - | !-}
 {-binOp ::= + | - | * | / | && | "||" | == | != | < | > | <= | >=-}
 {-Int ::= digit+-}
@@ -44,11 +44,12 @@ data Statement = Expr Expr | If Expr Statement Statement | Let String Expr State
 
 data Expr = Const Con | Var String | Un UnOp Expr | Bin BinOp Expr Expr deriving Show
 
-data Con = In Integer | Fl Double | Boolean Bool deriving Show
+data Con = In Integer | Fl Double | Boolean Bool | Str String deriving Show
 
-data UnOp = Not | Negative deriving Show
+-- pour l'instant les fonctions sont unaires et hard-codées, c'est amené à évoluer !
+data UnOp = Not | Negative | Int2str | Float2str | Bool2str | Str2int | Str2float | Str2bool deriving Show
 
-data BinOp = Plus | Minus | Mult | Div | And | Or | Equals | Diff | Inf | Sup | InfEq | SupEq deriving Show
+data BinOp = Plus | Minus | Mult | Div | And | Or | Equals | Diff | Inf | Sup | InfEq | SupEq | Concat deriving Show
 
 
 
@@ -63,7 +64,7 @@ myStyle = emptyDef
               commentEnd = "*/" ,
               commentLine = "//" ,
               reservedNames = ["else", "False", "if", "in", "let", "then", "True", "="] ,
-              reservedOpNames = ["+", "-", "*", "/", "<", ">", ">=", "<=", "&&", "||", "==", "!="]
+              reservedOpNames = ["+", "-", "*", "/", "<", ">", ">=", "<=", "&&", "||", "==", "!=", "++"]
             }
 
 
@@ -86,6 +87,7 @@ semiSep1 = PT.semiSep1 lexer -- séquence d'expressions séparées par des ";"
 identifier = PT.identifier lexer -- 
 reserved = PT.reserved lexer
 reservedOp = PT.reservedOp lexer
+stringLiteral = PT.stringLiteral lexer
 
 
 ------ Le parseur -------
@@ -139,18 +141,22 @@ expr = buildExpressionParser table factor
 -- !!! Pour l'instant il n'y a pas les opérateurs unaires => voir du côté des Operator
 table :: OperatorTable Char () Expr
 table = [
-            [ op "&&" (Bin And) AssocLeft ]
-            , [ op "||" (Bin Or) AssocLeft ]
-            , [ op ">" (Bin Sup) AssocNone, op "<" (Bin Inf) AssocNone, op ">=" (Bin SupEq) AssocNone, op "<=" (Bin InfEq) AssocNone ]
-            , [ op "==" (Bin Equals) AssocNone, op "!=" (Bin Diff) AssocNone ]
-            , [ op "*" (Bin Mult) AssocLeft, op "/" (Bin Div) AssocLeft ]
-            , [ op "+" (Bin Plus) AssocLeft, op "-" (Bin Minus) AssocLeft ]
+            [ unop "!" (Un Not), unop "-" (Un Negative) ]
+            , [ unop "str2int" (Un Str2int), unop "str2float" (Un Str2float), unop "str2bool" (Un Str2bool) ]
+            , [ unop "int2str" (Un Int2str), unop "float2str" (Un Float2str), unop "bool2str" (Un Bool2str) ]
+            , [ binop "&&" (Bin And) AssocLeft ]
+            , [ binop "||" (Bin Or) AssocLeft ]
+            , [ binop ">" (Bin Sup) AssocNone, binop "<" (Bin Inf) AssocNone, binop ">=" (Bin SupEq) AssocNone, binop "<=" (Bin InfEq) AssocNone ]
+            , [ binop "==" (Bin Equals) AssocNone, binop "!=" (Bin Diff) AssocNone ]
+            , [ binop "*" (Bin Mult) AssocLeft, binop "/" (Bin Div) AssocLeft ]
+            , [ binop "+" (Bin Plus) AssocLeft, binop "-" (Bin Minus) AssocLeft ]
+            , [ binop "++" (Bin Concat) AssocLeft ]
         ]
         where
-            op str fun assoc =
+            binop str fun assoc =
                 Infix ( do { reservedOp str; return fun } <?> "Operator" ) assoc
                 -- le <?> est là pour améliorer les messages d'erreur lors du parsage
-
+            unop str fun = Prefix( do { reservedOp str; return fun } )
 
 factor = parens expr
          <|> 
@@ -172,6 +178,10 @@ factor = parens expr
          <|>
          do { reserved "False";
               return $ Const (Boolean False)
+         }
+         <|>
+         do { str <- stringLiteral;
+             return $ Const (Str str)
          }
 
 
