@@ -43,9 +43,9 @@ type Type = Maybe [SimpleType]
 
 type Prog = [Statement]
 
-data Statement = Expr (Expr, Type) | If (Expr, Type) (Statement, Type) (Statement, Type) | Let String (Expr, Type) (Statement, Type) deriving Show
+data Statement = Expr Expr Type | If Expr Statement Statement Type | Let String Expr Statement Type deriving Show
 
-data Expr = Const (Con, Type) | Var (String, Type) | Un (UnOp, Type) (Expr, Type) | Bin (BinOp, Type) (Expr, Type) (Expr, Type) deriving Show
+data Expr = Const Con Type | Var String Type | Un (UnOp, Type) Expr Type | Bin (BinOp, Type) Expr Expr Type deriving Show
 
 data Con = In Integer | Fl Double | Boolean Bool | Str String deriving Show
 
@@ -111,7 +111,7 @@ stmt = do {
             if_true <- stmt;
             reserved "else";
             if_false <- stmt;
-            return (If (cond, Just []) (if_true, Just []) (if_false, Just []));
+            return (If cond if_true if_false (Just []));
           }
             <|>
         do {
@@ -122,12 +122,12 @@ stmt = do {
             val <- expr;
             reserved "in";
             st <- stmt;
-            return (Let ident (val, Just []) (st, Just []));
+            return (Let ident val st (Just []));
         }
         <|>
         do {
             e <- expr;
-            return (Expr (e, Just []))
+            return (Expr e (Just []))
         }
 
 
@@ -162,61 +162,61 @@ table = [
                 -- le <?> est là pour améliorer les messages d'erreur lors du parsage
             unop str fun = Prefix( do { reservedOp str; return fun } )
 
-            mkNot e = Un (Not, Just [Bool, Bool]) (e, Just [])
-            mkNegative e = Un (Negative, Just [Int, Int]) (e, Just [])
-            mkStr2int e = Un (Str2int, Just [String, Int]) (e, Just [])
-            mkStr2float e = Un (Str2float, Just [String, Float]) (e, Just [])
-            mkStr2bool e = Un (Str2bool, Just [String, Bool]) (e, Just [])
-            mkInt2str e = Un (Int2str, Just [Int, String]) (e, Just [])
-            mkFloat2str e = Un (Float2str, Just [Float, String]) (e, Just [])
-            mkBool2str e = Un (Bool2str, Just [Float, String]) (e, Just [])
+            mkNot e       = Un (Not, Just [Bool, Bool])          e (Just [])
+            mkNegative e  = Un (Negative, Just [Int, Int])       e (Just [])
+            mkStr2int e   = Un (Str2int, Just [String, Int])     e (Just [])
+            mkStr2float e = Un (Str2float, Just [String, Float]) e (Just [])
+            mkStr2bool e  = Un (Str2bool, Just [String, Bool])   e (Just [])
+            mkInt2str e   = Un (Int2str, Just [Int, String])     e (Just [])
+            mkFloat2str e = Un (Float2str, Just [Float, String]) e (Just [])
+            mkBool2str e  = Un (Bool2str, Just [Float, String])  e (Just [])
 
-            mkAnd e1 e2 = Bin (And, Just [Bool, Bool, Bool]) (e1, Just []) (e2, Just [])
-            mkOr e1 e2 = Bin (Or, Just [Bool, Bool, Bool]) (e1, Just []) (e2, Just [])
+            mkAnd e1 e2 = Bin (And, Just [Bool, Bool, Bool]) e1 e2 (Just [])
+            mkOr e1 e2  = Bin (Or, Just [Bool, Bool, Bool])  e1 e2 (Just [])
             
             -- FIXME : doivent devenir polymorphe rapidement ! a -> a -> Bool
-            mkEquals e1 e2 = Bin (Equals, Just [Int, Int, Bool]) (e1, Just []) (e2, Just [])
-            mkDiff e1 e2 = Bin (Diff, Just [Int, Int, Bool]) (e1, Just []) (e2, Just [])
+            mkEquals e1 e2 = Bin (Equals, Just [Int, Int, Bool]) e1 e2 (Just [])
+            mkDiff e1 e2   = Bin (Diff, Just [Int, Int, Bool])   e1 e2 (Just [])
 
             -- FIXME : pareil si on choisi de comparer les chaînes
-            mkSup e1 e2 = Bin (Sup, Just [Int, Int, Bool]) (e1, Just []) (e2, Just [])
-            mkInf e1 e2 = Bin (Inf, Just [Int, Int, Bool]) (e1, Just []) (e2, Just [])
-            mkSupEq e1 e2 = Bin (SupEq, Just [Int, Int, Bool]) (e1, Just []) (e2, Just [])
-            mkInfEq e1 e2 = Bin (InfEq, Just [Int, Int, Bool]) (e1, Just []) (e2, Just [])
+            mkSup e1 e2   = Bin (Sup, Just [Int, Int, Bool])   e1 e2 (Just [])
+            mkInf e1 e2   = Bin (Inf, Just [Int, Int, Bool])   e1 e2 (Just [])
+            mkSupEq e1 e2 = Bin (SupEq, Just [Int, Int, Bool]) e1 e2 (Just [])
+            mkInfEq e1 e2 = Bin (InfEq, Just [Int, Int, Bool]) e1 e2 (Just [])
 
             -- FIXME : devrait devenir polymorphe aussi, ou alors on se la jour CamlLight
             -- avec +., -., ... pour les opérations sur les flottants
-            mkMult e1 e2 = Bin (Mult, Just [Int, Int, Int]) (e1, Just []) (e2, Just [])
-            mkDiv e1 e2 = Bin (Div, Just [Int, Int, Int]) (e1, Just []) (e2, Just [])
-            mkPlus e1 e2 = Bin (Plus, Just [Int, Int, Int]) (e1, Just []) (e2, Just [])
-            mkMinus e1 e2 = Bin (Minus, Just [Int, Int, Int]) (e1, Just []) (e2, Just [])
+            mkMult e1 e2  = Bin (Mult, Just [Int, Int, Int])  e1 e2 (Just [])
+            mkDiv e1 e2   = Bin (Div, Just [Int, Int, Int])   e1 e2 (Just [])
+            mkPlus e1 e2  = Bin (Plus, Just [Int, Int, Int])  e1 e2 (Just [])
+            mkMinus e1 e2 = Bin (Minus, Just [Int, Int, Int]) e1 e2 (Just [])
 
-            mkConcat e1 e2 = Bin (Concat, Just [String, String, String]) (e1, Just []) (e2, Just [])
+            mkConcat e1 e2 = Bin (Concat, Just [String, String, String]) e1 e2 (Just [])
 
 
 
 factor = parens expr
          <|> 
          do { iden <- identifier;
-              return $ Var (iden, Just [])
+              return $ Var iden (Just [])
          }
          <|>
          do { i <- integer;
-              return $ Const ((In i), Just [Int])
+              return $ Const (In i) (Just [Int])
          }
          <|> 
          do { x <- float;
-              return $ Const ((Fl x), Just [Float])
+              return $ Const (Fl x) (Just [Float])
          }
          <|> 
          do { reserved "True";
-              return $ Const ((Boolean True), Just [Bool])
+              return $ Const (Boolean True) (Just [Bool])
          }
          <|>
          do { reserved "False";
-              return $ Const ((Boolean False), Just [Bool])
+              return $ Const (Boolean False) (Just [Bool])
          }
          <|>
          do { str <- stringLiteral;
-             return $ Const ((Str str), Just [String])
+             return $ Const (Str str) (Just [String])
          }
