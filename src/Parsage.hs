@@ -9,10 +9,6 @@
 ----------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------
 
--- Attention, pour que Parsec soit vraiment pratique efficace, il vaut mieux que la
--- grammaire soit LL1.
-{-prog ::= statement { ; statement }*-}
-
 {-statement ::= if expr then statement else statement-}
             {-| let var = expr in statement-}
 
@@ -36,13 +32,20 @@ import Text.ParserCombinators.Parsec.Language
 
 
 
+-- Des types pour représenter les types, un type inductif paraît pas mal
+data SimpleType = Int | Float | Bool | String | Polym Char deriving Show
+type Type = Maybe [SimpleType]
+-- Just [] représente un terme "pas encore typé", typiquement lors de la création de l'AST
+-- Nothing représente un typage qui a échoué
+
+
 -- Les types de données utilisés dans notre AST
 
 type Prog = [Statement]
 
-data Statement = Expr Expr | If Expr Statement Statement | Let String Expr Statement deriving Show
+data Statement = Expr (Expr, Type) | If (Expr, Type) (Statement, Type) (Statement, Type) | Let String (Expr, Type) (Statement, Type) deriving Show
 
-data Expr = Const Con | Var String | Un UnOp Expr | Bin BinOp Expr Expr deriving Show
+data Expr = Const (Con, Type) | Var (String, Type) | Un (UnOp, Type) (Expr, Type) | Bin (BinOp, Type) (Expr, Type) (Expr, Type) deriving Show
 
 data Con = In Integer | Fl Double | Boolean Bool | Str String deriving Show
 
@@ -52,21 +55,6 @@ data UnOp = Not | Negative | Int2str | Float2str | Bool2str | Str2int | Str2floa
 data BinOp = Plus | Minus | Mult | Div | And | Or | Equals | Diff | Inf | Sup | InfEq | SupEq | Concat deriving Show
 
 
-{-pretty_print :: Statement -> String-}
-{-pretty_print stmt =-}
-    {-case stmt of-}
-        {-Expr e -> pretty_print_e e-}
-        {-If e s1 s2 -> "If " ++ pretty_print_e e ++ "\n\t" ++ pretty_print s1 ++ "\n\t" ++ pretty_print s2-}
-        {-Let var e s -> "Let " ++ var ++ " " ++ pretty_print_e e ++ "in \n\t" ++ pretty_print s-}
-
-
-{-pretty_print_e :: Expr -> String-}
-{-pretty_print_e expr =-}
-    {-case expr of-}
-        {-Const con -> show con-}
-        {-Var str -> str-}
-        {-Un op expr -> show op ++ pretty_print_e expr-}
-        {-Bin op e1 e2 -> show op ++ "\n\t" ++ pretty_print_e e1 ++ "\n\t" ++ pretty_print_e e2-}
 
 
 -- Le style du langage :
@@ -123,7 +111,7 @@ stmt = do {
             if_true <- stmt;
             reserved "else";
             if_false <- stmt;
-            return (If cond if_true if_false);
+            return (If (cond, Just []) (if_true, Just []) (if_false, Just []));
           }
             <|>
         do {
@@ -134,12 +122,12 @@ stmt = do {
             val <- expr;
             reserved "in";
             st <- stmt;
-            return (Let ident val st);
+            return (Let ident (val, Just []) (st, Just []));
         }
         <|>
         do {
             e <- expr;
-            return (Expr e)
+            return (Expr (e, Just []))
         }
 
 
@@ -153,19 +141,20 @@ expr = buildExpressionParser table factor
 -- La table, qui contient les différents opérateurs par ordre de précédence
 -- et indiquant leur associativité
 --
--- !!! Pour l'instant il n'y a pas les opérateurs unaires => voir du côté des Operator
+-- TODO : transformer ça en arbre AVEC types
+--
 table :: OperatorTable Char () Expr
 table = [
-            [ unop "!" (Un Not), unop "-" (Un Negative) ]
-            , [ unop "str2int" (Un Str2int), unop "str2float" (Un Str2float), unop "str2bool" (Un Str2bool) ]
-            , [ unop "int2str" (Un Int2str), unop "float2str" (Un Float2str), unop "bool2str" (Un Bool2str) ]
-            , [ binop "&&" (Bin And) AssocLeft ]
-            , [ binop "||" (Bin Or) AssocLeft ]
-            , [ binop ">" (Bin Sup) AssocNone, binop "<" (Bin Inf) AssocNone, binop ">=" (Bin SupEq) AssocNone, binop "<=" (Bin InfEq) AssocNone ]
-            , [ binop "==" (Bin Equals) AssocNone, binop "!=" (Bin Diff) AssocNone ]
-            , [ binop "*" (Bin Mult) AssocLeft, binop "/" (Bin Div) AssocLeft ]
-            , [ binop "+" (Bin Plus) AssocLeft, binop "-" (Bin Minus) AssocLeft ]
-            , [ binop "++" (Bin Concat) AssocLeft ]
+            [ unop "!" (mkNot), unop "-" (mkNegative) ]
+            , [ unop "str2int" (mkStr2int), unop "str2float" (mkStr2float), unop "str2bool" (mkStr2bool) ]
+            , [ unop "int2str" (mkInt2str), unop "float2str" (mkFloat2str), unop "bool2str" (mkBool2str) ]
+            , [ binop "&&" (mkAnd) AssocLeft ]
+            , [ binop "||" (mkOr) AssocLeft ]
+            , [ binop ">" (mkSup) AssocNone, binop "<" (mkInf) AssocNone, binop ">=" (mkSupEq) AssocNone, binop "<=" (mkInfEq) AssocNone ]
+            , [ binop "==" (mkEquals) AssocNone, binop "!=" (mkDiff) AssocNone ]
+            , [ binop "*" (mkMult) AssocLeft, binop "/" (mkDiv) AssocLeft ]
+            , [ binop "+" (mkPlus) AssocLeft, binop "-" (mkMinus) AssocLeft ]
+            , [ binop "++" (mkConcat) AssocLeft ]
         ]
         where
             binop str fun assoc =
@@ -173,28 +162,61 @@ table = [
                 -- le <?> est là pour améliorer les messages d'erreur lors du parsage
             unop str fun = Prefix( do { reservedOp str; return fun } )
 
+            mkNot e = Un (Not, Just [Bool, Bool]) (e, Just [])
+            mkNegative e = Un (Negative, Just [Int, Int]) (e, Just [])
+            mkStr2int e = Un (Str2int, Just [String, Int]) (e, Just [])
+            mkStr2float e = Un (Str2float, Just [String, Float]) (e, Just [])
+            mkStr2bool e = Un (Str2bool, Just [String, Bool]) (e, Just [])
+            mkInt2str e = Un (Int2str, Just [Int, String]) (e, Just [])
+            mkFloat2str e = Un (Float2str, Just [Float, String]) (e, Just [])
+            mkBool2str e = Un (Bool2str, Just [Float, String]) (e, Just [])
+
+            mkAnd e1 e2 = Bin (And, Just [Bool, Bool, Bool]) (e1, Just []) (e2, Just [])
+            mkOr e1 e2 = Bin (Or, Just [Bool, Bool, Bool]) (e1, Just []) (e2, Just [])
+            
+            -- FIXME : doivent devenir polymorphe rapidement ! a -> a -> Bool
+            mkEquals e1 e2 = Bin (Equals, Just [Int, Int, Bool]) (e1, Just []) (e2, Just [])
+            mkDiff e1 e2 = Bin (Diff, Just [Int, Int, Bool]) (e1, Just []) (e2, Just [])
+
+            -- FIXME : pareil si on choisi de comparer les chaînes
+            mkSup e1 e2 = Bin (Sup, Just [Int, Int, Bool]) (e1, Just []) (e2, Just [])
+            mkInf e1 e2 = Bin (Inf, Just [Int, Int, Bool]) (e1, Just []) (e2, Just [])
+            mkSupEq e1 e2 = Bin (SupEq, Just [Int, Int, Bool]) (e1, Just []) (e2, Just [])
+            mkInfEq e1 e2 = Bin (InfEq, Just [Int, Int, Bool]) (e1, Just []) (e2, Just [])
+
+            -- FIXME : devrait devenir polymorphe aussi, ou alors on se la jour CamlLight
+            -- avec +., -., ... pour les opérations sur les flottants
+            mkMult e1 e2 = Bin (Mult, Just [Int, Int, Int]) (e1, Just []) (e2, Just [])
+            mkDiv e1 e2 = Bin (Div, Just [Int, Int, Int]) (e1, Just []) (e2, Just [])
+            mkPlus e1 e2 = Bin (Plus, Just [Int, Int, Int]) (e1, Just []) (e2, Just [])
+            mkMinus e1 e2 = Bin (Minus, Just [Int, Int, Int]) (e1, Just []) (e2, Just [])
+
+            mkConcat e1 e2 = Bin (Concat, Just [String, String, String]) (e1, Just []) (e2, Just [])
+
+
+
 factor = parens expr
          <|> 
          do { iden <- identifier;
-              return $ Var iden
+              return $ Var (iden, Just [])
          }
          <|>
          do { i <- integer;
-              return $ Const (In i)
+              return $ Const ((In i), Just [Int])
          }
          <|> 
          do { x <- float;
-              return $ Const (Fl x)
+              return $ Const ((Fl x), Just [Float])
          }
          <|> 
          do { reserved "True";
-              return $ Const (Boolean True)
+              return $ Const ((Boolean True), Just [Bool])
          }
          <|>
          do { reserved "False";
-              return $ Const (Boolean False)
+              return $ Const ((Boolean False), Just [Bool])
          }
          <|>
          do { str <- stringLiteral;
-             return $ Const (Str str)
+             return $ Const ((Str str), Just [String])
          }
