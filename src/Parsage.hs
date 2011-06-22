@@ -2,25 +2,37 @@
 -- des opérateurs binaires infixes, un - préfixe, ...
 -- Le résultat sera un arbre que l'on pourra décorer des types des expressions...
 
+------------------------------------------------------------------------------------
+-- La première étape consiste en le parsage des expressions que nous allons
+-- utiliser. Elles resteront très simple, seules seront implémentées les expressions
+-- du style
+--      - if cond then action_si_true else action_si_false
+--      - let var = expression in action
+--      - les expressions arithmétiques classiques plus quelques autres fonctions
+--        et opérateurs built-in comme ++ (concat), str2int, ...
+------------------------------------------------------------------------------------
 
-----------------------------------------------------------------------------------
-----------------------------------------------------------------------------------
---                      Définition de la grammaire utilisée                     --
-----------------------------------------------------------------------------------
-----------------------------------------------------------------------------------
 
-{-statement ::= if expr then statement else statement-}
-            {-| let var = expr in statement-}
 
-{-expr ::= const | var | (expr) | unOp expr | expr binOp expr-}
-{-const ::= Int | Float | Bool | String -}
-{-unOp ::= - | !-}
-{-binOp ::= + | - | * | / | && | "||" | == | != | < | > | <= | >=-}
-{-Int ::= digit+-}
-{-Float ::= Int '.' Int-}
-{-Bool ::= "True" | "False"-}
+-- Plus formellement, voici ça grammaire que l'on utilise (pour l'instant)
 
--- Haskell nous fourni Parsec, ne nous ne privons pas !
+{-
+  statement ::= if expr then statement else statement
+            | let var = expr in statement
+            | expr
+ 
+ expr ::= const | var | (expr) | unOp expr | expr binOp expr
+ const ::= Int | Float | Bool | String
+ unOp ::= - | ! | <autres fonctions built-in>
+ binOp ::= + | - | * | / | && | "||" | == | != | < | > | <= | >= | ++
+ Int ::= digit+
+ Float ::= Int '.' Int
+ Bool ::= "True" | "False"
+ -}
+
+
+-- Pour le parsage des expression, nous utiliserons la bibliothèque Haskell par défaut
+-- Parsec, qui offre de nombreux outils pour réaliser ce genre de tâches
 
 module Parsage where
 
@@ -30,35 +42,42 @@ import qualified Text.ParserCombinators.Parsec.Token as PT
 import Text.ParserCombinators.Parsec.Language
 
 
+-----------------------------------------
+-- Les types utiles dans ce module
+-----------------------------------------
 
 
--- Des types pour représenter les types, un type inductif paraît pas mal
+-- Même si on ne s'occupe pas de typage ici, on décore l'arbre avec des types vides (et
+-- déjà les types définitifs pour les constantes), on a donc besoin d'une visibilité sur
+-- les types utilisés pour représenter les types (...)
+--
+
+-- Nos types de base sont réduits à des choses simples, Polym est prévu
+-- pour pouvoir gérer des fonctions polymorphes (non utilisé pour l'instant)
+
+-- TODO : ajouter des listes serait pas mal
 data SimpleType = Int | Float | Bool | String | Polym Char deriving (Eq, Show)
+
+
+-- Un type à proprement parler est représenté par une liste de types simples
+-- la liste [a, b, c] représente le type a -> b -> c
+-- On encapsule le tout dans une monade Maybe :
+--      - un type Nothing dénote l'échec du processus de typage
+--      - Just [qqch] un type qui a été calculé
+--      - Just [] est le type donné aux expressions dont le type n'a pas encore été calculé
+--
+-- TODO : ça fait beaucoup de Just partout dans le code de Typage, essayer de trouver mieux...
 type Type = Maybe [SimpleType]
--- Just [] représente un terme "pas encore typé", typiquement lors de la création de l'AST
--- Nothing représente un typage qui a échoué
 
 
 
--- Les types de données utilisés dans notre AST
-
-type Prog = [Statement]
-
-{-data Statement = Expr {getExpr :: Expr, typeof :: Type } -}
-               {-| If { cond :: Expr, ifTrue :: Statement, ifFalse :: Statement,  typeof :: Type }-}
-               {-| Let { var :: String, value :: Expr, body :: Statement, typeof :: Type }-}
-               {-deriving Show-}
-
-{-data Expr = Const { constr :: Con, typeof_e :: Type }-}
-            {-| Var { name :: String, typeof_e :: Type }-}
-            {-| Un { unop :: (UnOp, Type), getExprUn :: Expr, typeof_e :: Type }-}
-            {-| Bin { binop :: (BinOp, Type), e1 :: Expr, e2 :: Expr, typeof_e :: Type }-}
-            {-deriving Show-}
+-- Les types de données correspondant à la grammaire donnée plus tôt
 
 data Statement = Expr Expr Type
                | If Expr Statement Statement Type
                | Let String Expr Statement Type
                deriving Show
+
 
 data Expr = Const Con Type
             | Var String Type
@@ -69,7 +88,8 @@ data Expr = Const Con Type
 
 data Con = In Integer | Fl Double | Boolean Bool | Str String deriving Show
 
--- pour l'instant les fonctions sont unaires et hard-codées, c'est amené à évoluer !
+-- TODO : pour l'instant les fonctions sont unaires et hard-codées, prochaîne étape :
+-- TODO gérer la déclaration de fonctions
 data UnOp = Not | Negative | Int2str | Float2str | Bool2str | Str2int | Str2float | Str2bool deriving Show
 
 data BinOp = Plus | Minus | Mult | Div | And | Or | Equals | Diff | Inf | Sup | InfEq | SupEq | Concat deriving Show
@@ -77,13 +97,20 @@ data BinOp = Plus | Minus | Mult | Div | And | Or | Equals | Diff | Inf | Sup | 
 
 
 
--- Le style du langage :
---      les commentaires seront "à la C"
---      la déclaration des mots réservés évite les problèmes si un nom de variable commence
---      par la même chose qu'un mot réservé (e.g une variable nommée "lettre" poserait problème à cause de "let")
+
+
+
+-------------------------------------------------------
+-- Le parseur en lui-même, avec utilisation de Parsec
+-------------------------------------------------------
+
+
+----------------- Commençons par le lexer -------------
+
+-- Style du langage
 myStyle :: LanguageDef ()
 myStyle = emptyDef
-            { commentStart = "/*" ,
+            { commentStart = "/*" , -- commentaires façon C
               commentEnd = "*/" ,
               commentLine = "//" ,
               reservedNames = ["else", "False", "if", "in", "let", "then", "True", "="] ,
@@ -91,37 +118,43 @@ myStyle = emptyDef
             }
 
 
--- Le lexer qui créera le flux de tokens
+-- La création du lexer
 lexer :: PT.TokenParser ()
 lexer = PT.makeTokenParser myStyle
         
 
 -- Ceci nous fourni alors divers parseurs (pour les expaces blancs, les entiers, les
--- expressions parenthèsées, les mots réservés, ...)
+-- expressions parenthésées, les mots réservés, ...)
 -- Pour plus de lisibilité dans la suite, on bind directement ici ceux qui nous seront utiles
 
 whiteSpace = PT.whiteSpace lexer -- pour les espaces
-symbol = PT.symbol lexer -- string s ET ignore les espaces finaux
 integer = PT.integer lexer -- un élément de Z
-hexadecimal = PT.hexadecimal lexer -- Parce qu'on aime faire des calculs en hexa, doit commencer par 0x ou 0X
 float = PT.float lexer -- un flottant
 parens = PT.parens lexer -- pour un élément entre parenthèses
-semiSep1 = PT.semiSep1 lexer -- séquence d'expressions séparées par des ";"
-identifier = PT.identifier lexer -- 
-reserved = PT.reserved lexer
-reservedOp = PT.reservedOp lexer
-stringLiteral = PT.stringLiteral lexer
+identifier = PT.identifier lexer -- pour les noms de variable
+reserved = PT.reserved lexer -- pour un mot réservé
+reservedOp = PT.reservedOp lexer -- pour un opérateur réservé
+stringLiteral = PT.stringLiteral lexer -- Pour les chaînes
 
 
------- Le parseur -------
--- On doit retourner un AST de notre programme, donc le parseur sera de type Parser Statement
-
--- Parser pour le programme complet : plusieurs statements séparés par des ";"
-prog :: Parser Prog
-prog = semiSep1 stmt
 
 
--- Un statement : if then else | let in
+------ Maintenant qu'on a le lexer, continuons avec le parseur -------
+
+-- Un programme entier est un statement.
+-- Pour le toplevel, nous devons gérer "à la main" (mais on est bien aidés quand
+-- même) les espaces blancs du départ. On vérifie aussi la présence de eof afin
+-- qu'une parenthèse fermante de trop ne nous fasse pas croire qu'on a terminé
+-- de parses avec succès alors qu'on s'est en fait arrêté à la moitié du programme...
+prog :: Parser Statement
+prog = do 
+            whiteSpace
+            s <- stmt
+            eof
+            return s
+
+
+-- 3 formes possibles pour le statement
 stmt :: Parser Statement
 stmt = do { 
             -- if cond then if_true else if_false
@@ -152,17 +185,17 @@ stmt = do {
 
 
 
--- La partie expressions se prète bien à l'utilisation de l'ExpressionParser fourni par Parsec
+-- En ce qui concerne les expressions, Parsec fourni un utilitaire très pratique pour parser ce genre
+-- de choses. Il suffit de lui fournir la liste de nos opérateurs et fonctions built-in, et il se débrouille.
+-- TODO : il serait bien de déclarer nos opérateurs et fonctions built-in dans un fichier séparé plutôt que
+-- directement dans le code source, on verra plus tard
 expr :: Parser Expr
 expr = buildExpressionParser table factor
 
 
-
--- La table, qui contient les différents opérateurs par ordre de précédence
--- et indiquant leur associativité
---
--- TODO : transformer ça en arbre AVEC types
---
+-- Les différents opérateurs sont donnée du plus prioritaire au moins prioritaire, ceux sur la même
+-- ligne ont même priorité.
+-- cf doc de Parsec pour plus de détails
 table :: OperatorTable Char () Expr
 table = [
             [ unop "!" (mkNot), unop "-" (mkNegative) ]
@@ -180,8 +213,11 @@ table = [
             binop str fun assoc =
                 Infix ( do { reservedOp str; return fun } <?> "Operator" ) assoc
                 -- le <?> est là pour améliorer les messages d'erreur lors du parsage
-            unop str fun = Prefix( do { reservedOp str; return fun } )
+            unop str fun = Prefix( do { reservedOp str; return fun } <?> "Unary Operator" )
 
+-- FIXME  ceci est le code le moins modulaire et le moins factorisé du monde,
+-- FIXME  ça serait bien de trouver une solution moins moche
+--
             mkNot e       = Un (Not, Just [Bool, Bool])          e (Just [])
             mkNegative e  = Un (Negative, Just [Int, Int])       e (Just [])
             mkStr2int e   = Un (Str2int, Just [String, Int])     e (Just [])
@@ -194,18 +230,20 @@ table = [
             mkAnd e1 e2 = Bin (And, Just [Bool, Bool, Bool]) e1 e2 (Just [])
             mkOr e1 e2  = Bin (Or, Just [Bool, Bool, Bool])  e1 e2 (Just [])
             
-            -- FIXME : doivent devenir polymorphe rapidement ! a -> a -> Bool
+            -- FIXME : doivent devenir polymorphe a -> a -> Bool
             mkEquals e1 e2 = Bin (Equals, Just [Int, Int, Bool]) e1 e2 (Just [])
             mkDiff e1 e2   = Bin (Diff, Just [Int, Int, Bool])   e1 e2 (Just [])
 
-            -- FIXME : pareil si on choisi de comparer les chaînes
+            -- FIXME : pareil si on choisi de comparer les chaînes (sinon ajouter
+            -- des opérateurs supplémentaires pour les Floats...)
             mkSup e1 e2   = Bin (Sup, Just [Int, Int, Bool])   e1 e2 (Just [])
             mkInf e1 e2   = Bin (Inf, Just [Int, Int, Bool])   e1 e2 (Just [])
             mkSupEq e1 e2 = Bin (SupEq, Just [Int, Int, Bool]) e1 e2 (Just [])
             mkInfEq e1 e2 = Bin (InfEq, Just [Int, Int, Bool]) e1 e2 (Just [])
 
             -- FIXME : devrait devenir polymorphe aussi, ou alors on se la jour CamlLight
-            -- avec +., -., ... pour les opérations sur les flottants
+            -- avec +., -., ... pour les opérations sur les flottants (car comment définir
+            -- / pour des chaînes ? Et pas envie de gérer des classes, j'en suis loin)
             mkMult e1 e2  = Bin (Mult, Just [Int, Int, Int])  e1 e2 (Just [])
             mkDiv e1 e2   = Bin (Div, Just [Int, Int, Int])   e1 e2 (Just [])
             mkPlus e1 e2  = Bin (Plus, Just [Int, Int, Int])  e1 e2 (Just [])
@@ -215,6 +253,7 @@ table = [
 
 
 
+-- le facteur de base à donner au constructeur de parseur d'expressions
 factor = parens expr
          <|> 
          do { iden <- identifier;
