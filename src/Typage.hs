@@ -141,10 +141,12 @@ instance Typed Expr where
 
 
 -- Juste pour tester
-main = let ast = parse stmt "" "let e = -4 in (str2int \"truc\") + e"
+main = let ast = parse stmt "" "let e = -4 in f a,b,c) + e"
         in
             case ast of 
                 Left err -> putStrLn "Il y a eu une erreur de parse !"
-                Right arbre -> let typed_arbre = infer_type arbre in do {
-                                    putStrLn $ show typed_arbre;
-                                }
+                {-Right arbre -> let typed_arbre = infer_type arbre in do { -}
+                                    {-putStrLn $ show arbre;-}
+                                    {-putStrLn $ show typed_arbre;-}
+
+                Right arbre -> putStrLn $ show arbre;

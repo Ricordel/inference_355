@@ -83,6 +83,7 @@ data Expr = Const Con Type
             | Var String Type
             | Un (UnOp, Type) Expr Type
             | Bin (BinOp, Type) Expr Expr Type
+            | FunCall String [Expr] Type
             deriving Show
 
 
@@ -93,6 +94,9 @@ data Con = In Integer | Fl Double | Boolean Bool | Str String deriving Show
 data UnOp = Not | Negative | Int2str | Float2str | Bool2str | Str2int | Str2float | Str2bool deriving Show
 
 data BinOp = Plus | Minus | Mult | Div | And | Or | Equals | Diff | Inf | Sup | InfEq | SupEq | Concat deriving Show
+
+-- Représente un objet fonction
+data Fun = Fun String Type
 
 
 
@@ -113,7 +117,7 @@ myStyle = emptyDef
             { commentStart = "/*" , -- commentaires façon C
               commentEnd = "*/" ,
               commentLine = "//" ,
-              reservedNames = ["else", "False", "if", "in", "let", "then", "True", "="] ,
+              reservedNames = ["else", "False", "fun", "if", "in", "let", "then", "True", "="] ,
               reservedOpNames = ["+", "-", "*", "/", "<", ">", ">=", "<=", "&&", "||", "==", "!=", "++"]
             }
 
@@ -135,6 +139,7 @@ identifier = PT.identifier lexer -- pour les noms de variable
 reserved = PT.reserved lexer -- pour un mot réservé
 reservedOp = PT.reservedOp lexer -- pour un opérateur réservé
 stringLiteral = PT.stringLiteral lexer -- Pour les chaînes
+commaSep = PT.commaSep lexer -- pour la séparation des arguments de fonction
 
 
 
@@ -255,9 +260,13 @@ table = [
 
 -- le facteur de base à donner au constructeur de parseur d'expressions
 factor = parens expr
-         <|> 
+         <|> -- appel de fonction
          do { iden <- identifier;
-              return $ Var iden (Just [])
+              args <- commaSep expr; -- comme la notation curryfiée "classique" a l'air chiante à parser
+                                    -- je fais de la séparation par ,. Ca n'empêche pas de faire de l'application partielle
+              case args of
+                [] -> return $ Var iden (Just [])
+                _ -> return $ FunCall iden args (Just [])
          }
          <|>
          do { i <- integer;
@@ -279,3 +288,4 @@ factor = parens expr
          do { str <- stringLiteral;
              return $ Const (Str str) (Just [String])
          }
+
