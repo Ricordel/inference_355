@@ -63,9 +63,13 @@ import Text.ParserCombinators.Parsec
 
 
 
+-- TODO : Vérifier qu'il n'y a pas de redéfinition de variable
+
 class Typed a where
     typeof :: a -> Type
     infer_type :: a -> a
+    -- utilisé pour propager le type d'une variable partout là où elle est visible
+    propag_type :: String -> Type -> a -> a
 
 
 
@@ -89,8 +93,33 @@ instance Typed Statement where
 
     infer_type (Expr e (Just [])) = let e' = infer_type e in Expr e' (typeof e')
 
-    infer_type (Let var val s (Just [])) = Let var val s (Just []) -- FIXME : ajouter le support de let truc in machin
+    infer_type (Let var val s (Just [])) = 
+        let val' = infer_type val
+            s' = infer_type $ propag_type var (typeof val') s
+        in
+            Let var val' s' (typeof s')
+    
+    
+    
+    propag_type var t (If cond s1 s2 t_if) =
+        let cond' = propag_type var t cond
+            s1' = propag_type var t s1
+            s2' = propag_type var t s2
+        in
+            If cond' s1' s2' t_if
 
+    propag_type var t (Expr e t_e) =
+        let e' = propag_type var t e
+        in
+            Expr e' t_e
+
+    propag_type var t (Let iden val s t_let) =
+        let val' = propag_type var t val
+            s' = propag_type var t s'
+        in
+            Let iden val' s' t_let
+    
+    
 
 
 -- TODO : mettre tout ça dans une monade IO pour afficher les erreurs en même temps ???
@@ -115,8 +144,6 @@ instance Typed Expr where
             Un (op, Just t_op) e' Nothing
         
 
--- TODO : y a du caca entre les Maybe et les pas Maybe, essayer de rationnaliser tout ça pour que
--- ça finisse pas en énorme truc moche => peut-être en se mettant dans des do-notations ?
     infer_type (Bin (op, Just t_op) e1 e2 (Just [])) =
         let e1' = infer_type e1
             e2' = infer_type e2
@@ -132,10 +159,28 @@ instance Typed Expr where
     infer_type e = e
 
 
+    -- Les autres valeurs de type pour Var ne sont pas intéressantes :
+    -- on a détecté les éventuelles redéfinitions de variables avant TODO
+    propag_type var t (Var var' (Just [])) =
+        if var == var' then
+            Var var' t
+        else
+            Var var' (Just [])
+
+    -- Pour les autres, il ne s'agit que de bêtes appels récursifs aussi...
+    propag_type var t c@(Const _ _) = c
+
+    propag_type var t (Un op e t_e) = let e' = propag_type var t e in Un op e' t_e
+
+    propag_type var t (Bin op e1 e2 t_e) =
+        let e1' = propag_type var t e1
+            e2' = propag_type var t e2
+        in
+            Bin op e1' e2' t_e
 
 
 
-main = let ast = parse stmt "" "if 3 == 4 then 5 else 6"
+main = let ast = parse stmt "" "let e = 4 in 10 + e"
         in
             case ast of 
                 Left err -> putStrLn "Il y a eu une erreur de parse !"
