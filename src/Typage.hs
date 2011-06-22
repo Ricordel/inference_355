@@ -12,6 +12,143 @@ import Text.ParserCombinators.Parsec
 
 
 
+
+
+
+{-main = let ast = parse stmt "" "let e = 3 in 19 + e + 5 + 6 + 7 -5"-}
+
+
+
+-------------------------------------------------------------------
+--  Maintenant, décorons not noeud et feuilles avec leurs types --
+-------------------------------------------------------------------
+
+
+----------------- Nouvelle idée ----------------------
+
+-- Cf les types dans Parsage.hs
+
+-- Au départ, tout ce que l'on peut dire (au premier remplissage de l'arbre) est :
+--      - Statement :: a
+--      - Expr :: a
+--      - BinOp :: a -> a -> a
+--      - UnOp :: a -> a
+--      - In :: Int
+--      - Fl :: Float
+--      - Boolean :: Bool
+--      - Str :: String
+--
+-- Ensuite, on va pouvoir raffiner de plus en plus, tester la cohérence.
+-- Plus tard, on pourra se mettre à inférer...
+
+
+
+
+-- Maintenant on va propager nos types
+-- et vérifier leur cohérence.
+--
+-- Pour un If expr s1 s2 t, il faut
+--      - type(expr) = Bool
+--      - type(s1) = type(s2)
+--      - on en déduit alors le type du statement : t <- type(s1)
+--
+-- Pour un Let var val stmt
+--      - pas encore supporté :-(
+
+
+-- Construction de programme typé, avec potentiellement des types à Nothing si le typage
+-- a échoué (conflits). Une autre fonction se chargera de l'affichage
+-- TODO : transformer Maybe Type en Either (Type, Type) Type pourrait permettre de garder en
+-- mémoire, en cas d'erreur, le type inféré ET le type attendu (messages d'erreur plus complets)
+
+
+
+class Typed a where
+    typeof :: a -> Type
+    infer_type :: a -> a
+
+
+
+instance Typed Statement where
+
+    typeof (If _ _ _ t) = t
+    typeof (Let _ _ _ t) = t
+    typeof (Expr e t) = t
+
+
+-- ATTENTION : les expressions sont typées mais pas substituées ! => seul le ain statement garde un type à la fin, pas bien !
+    infer_type (If cond s1 s2 (Just [])) =
+        let cond' = infer_type cond
+            s1' = infer_type s1
+            s2' = infer_type s2
+        in
+            if typeof cond' == Just [Bool] && typeof s1' == typeof s2' then
+                If cond' s1' s2' (typeof s1')
+            else
+                If cond' s1' s2' Nothing
+
+    infer_type (Expr e (Just [])) = let e' = infer_type e in Expr e' (typeof e')
+
+    infer_type (Let var val s (Just [])) = Let var val s (Just []) -- FIXME : ajouter le support de let truc in machin
+
+
+
+-- TODO : mettre tout ça dans une monade IO pour afficher les erreurs en même temps ???
+
+instance Typed Expr where
+
+    typeof (Const _ t) = t
+    typeof (Var _ t) = t
+    typeof (Un _ _ t) = t
+    typeof (Bin _ _ _ t) = t
+
+
+    infer_type (Var x t) = Var x t -- FIXME : ira de pair avec le support de LET
+
+    infer_type (Un (op, Just t_op) e (Just [])) = 
+        let e' = infer_type e
+            t_arg : t_rslt = t_op
+        in
+        if typeof e' == Just [t_arg] then
+            Un (op, Just t_op) e' (Just t_rslt)
+        else
+            Un (op, Just t_op) e' Nothing
+        
+
+-- TODO : y a du caca entre les Maybe et les pas Maybe, essayer de rationnaliser tout ça pour que
+-- ça finisse pas en énorme truc moche => peut-être en se mettant dans des do-notations ?
+    infer_type (Bin (op, Just t_op) e1 e2 (Just [])) =
+        let e1' = infer_type e1
+            e2' = infer_type e2
+            t_arg1 : t_arg2 : t_rslt = t_op
+        in
+        if typeof e1' == Just [t_arg1] && typeof e2' == Just [t_arg2] then
+            Bin (op, Just t_op) e1' e2' (Just t_rslt) -- Ben pris en compte ici
+        else
+            Bin (op, Just t_op) e1' e2' Nothing
+
+
+    -- Pour le reste, rien besoin de faire, le type a déjà été inféré
+    infer_type e = e
+
+
+
+
+
+main = let ast = parse stmt "" "if 3 == 4 then 5 else 6"
+        in
+            case ast of 
+                Left err -> putStrLn "Il y a eu une erreur de parse !"
+                Right arbre -> let typed_arbre = infer_type arbre in do {
+                                    {-putStrLn $ show arbre;-}
+                                    putStrLn $ show typed_arbre;
+                                }
+
+
+
+
+
+
 -- Pas de gestion des redéfinitions de variable pour l'instant
 
 -- On commente ce qui suit, car la substitution des Let n'est pas forcément la bonne solution.
@@ -40,7 +177,6 @@ import Text.ParserCombinators.Parsec
 
 
 
-
 {-subs_expr :: String -> Expr -> Expr -> Expr-}
 {-subs_expr var val expr =-}
     {-case expr of-}
@@ -51,116 +187,3 @@ import Text.ParserCombinators.Parsec
                         {-Var str-}
         {-Bin binop e1 e2 -> Bin binop (subs_expr var val e1) (subs_expr var val e2)-}
         {-Un unop e -> Un unop (subs_expr var val e)-}
-
-
-
-{-main = let ast = parse stmt "" "let e = 3 in 19 + e + 5 + 6 + 7 -5"-}
-main = let ast = parse stmt "" "1 + 2 - 3"
-        in
-            case ast of 
-                Left err -> putStrLn "Il y a eu une erreur de parse !"
-                Right arbre -> do {
-                                    putStrLn $ show arbre;
-                                }
-
-
-
-
-
--------------------------------------------------------------------
---  Maintenant, décorons not noeud et feuilles avec leurs types --
--------------------------------------------------------------------
-
-
-
-
-
--- Un niveau d'abstraction sur Statement, Expr, ... qui sont tous des noeuds, que l'on pourra décorer
--- de leurs types
-{-data Node = Statement Statement | Expr Expr | Const Const-}
-{-type TypedNode = (Node, Type)-}
-
-
-
-
--- Construction de l'arbre des types à partir de l'AST
--- On fait une descente récursive dans l'arbre :
---      - dans une première étape on initialise : typage des trucs connus, et Unknown pour les autres
---      - ensuite on raffine, en remontant depuis le bas
-
-{-init_type :: Node -> Type-}
-{-init_type node =-}
-    {-case node of-}
-        {-If cond e1 e2 -> Int -- pipo-}
-        {-Expr e -> Float -- pipo-}
-
-
-
-
-
-
-
-
-
-
------------------ Nouvelle idée ----------------------
-
--- Cf les types dans Parsage.hs
-
--- Au départ, tout ce que l'on peut dire (au premier remplissage de l'arbre) est :
---      - Statement :: a
---      - Expr :: a
---      - BinOp :: a -> a -> a
---      - UnOp :: a -> a
---      - In :: Int
---      - Fl :: Float
---      - Boolean :: Bool
---      - Str :: String
---
--- Ensuite, on va pouvoir raffiner de plus en plus, tester la cohérence.
--- Plus tard, on pourra se mettre à inférer...
-
-
--- Une première chose triviale à inférer : le type des constantes : c'est le type de ce qu'il y a juste en dessous
-
--- Pour l'instant on ne traite que les arbres sans constructino Let
-
-{-infer_const :: Statement -> Statement-}
-{-infer_const stmt =-}
-    {-case stmt of-}
-        {-Expr (e, t) -> infer_const_e e-}
-        {-If (e, te) (s1, t1), (s2, t2) -> If (infer_const e, te) (infer_const s1, t1) (infer_const s2, t2)-}
-
-
-{-infer_const_e :: Expr -> Expr-}
-{-infer_const_e expr =-}
-    {-case expr of-}
-        {-Const (con, t) -> case con of-}
-                                {-In _ -> Const (con, Just [Int])-}
-                                {-Fl _ -> Const (con, Just [Float])-}
-                                {-Boolean _ -> Const (con, Just [Bool])-}
-                                {-Str _ -> Const (con, Just [String])-}
-        {-[>Var (str, t) -> -- On verra quand on implémentera le typage de let<]-}
-        {-Un (op, t_op) (e, t_e) -> Un (op, t_op) (infer_const_e e, t_e) -- on infère juste les constantes, donc le type de e -}
-        {-Bin (op, t_op) (e1, t_e1) (e2, t_e2) -> Bin (op, -}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -33,19 +33,39 @@ import Text.ParserCombinators.Parsec.Language
 
 
 -- Des types pour représenter les types, un type inductif paraît pas mal
-data SimpleType = Int | Float | Bool | String | Polym Char deriving Show
+data SimpleType = Int | Float | Bool | String | Polym Char deriving (Eq, Show)
 type Type = Maybe [SimpleType]
 -- Just [] représente un terme "pas encore typé", typiquement lors de la création de l'AST
 -- Nothing représente un typage qui a échoué
+
 
 
 -- Les types de données utilisés dans notre AST
 
 type Prog = [Statement]
 
-data Statement = Expr Expr Type | If Expr Statement Statement Type | Let String Expr Statement Type deriving Show
+{-data Statement = Expr {getExpr :: Expr, typeof :: Type } -}
+               {-| If { cond :: Expr, ifTrue :: Statement, ifFalse :: Statement,  typeof :: Type }-}
+               {-| Let { var :: String, value :: Expr, body :: Statement, typeof :: Type }-}
+               {-deriving Show-}
 
-data Expr = Const Con Type | Var String Type | Un (UnOp, Type) Expr Type | Bin (BinOp, Type) Expr Expr Type deriving Show
+{-data Expr = Const { constr :: Con, typeof_e :: Type }-}
+            {-| Var { name :: String, typeof_e :: Type }-}
+            {-| Un { unop :: (UnOp, Type), getExprUn :: Expr, typeof_e :: Type }-}
+            {-| Bin { binop :: (BinOp, Type), e1 :: Expr, e2 :: Expr, typeof_e :: Type }-}
+            {-deriving Show-}
+
+data Statement = Expr Expr Type
+               | If Expr Statement Statement Type
+               | Let String Expr Statement Type
+               deriving Show
+
+data Expr = Const Con Type
+            | Var String Type
+            | Un (UnOp, Type) Expr Type
+            | Bin (BinOp, Type) Expr Expr Type
+            deriving Show
+
 
 data Con = In Integer | Fl Double | Boolean Bool | Str String deriving Show
 
