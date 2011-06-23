@@ -83,7 +83,7 @@ data Expr = Const Con Type
             | Var String Type
             | Un (UnOp, Type) Expr Type
             | Bin (BinOp, Type) Expr Expr Type
-            | FunCall String [Expr] Type
+            | FunCall (String, Type) [Expr] Type -- le premier Type est celui de la fonction, le 2è celui du résultat de son application aux arguments
             | FunDef [String] Expr Type -- args, corps de la lambda
             deriving Show
 
@@ -264,7 +264,7 @@ factor = parens expr
                  try (symbol "(");
                  args <- commaSep1 expr;
                  symbol ")";
-                 return $ FunCall iden args (Just [])
+                 return $ FunCall (iden, Just []) args (Just [])
              }
              <|>
              do {
