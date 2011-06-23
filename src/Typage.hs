@@ -32,7 +32,8 @@ class Typed a where
     typeof :: a -> Type
     infer_type :: a -> a
     -- utilisé pour propager le type d'une variable définie avec un let
-    propag_type :: String -> Type -> a -> a
+    propag_var_type :: String -> Type -> a -> a
+    propag_fun_type :: String -> Type -> a -> a
 
 
 
@@ -57,45 +58,80 @@ instance Typed Statement where
 
     infer_type (Expr e (Just [])) = let e' = infer_type e in Expr e' (typeof e')
 
+
+    -- ET pour les fonctions, on fait quoi ?! => on dirait que c'est plus au même niveau,
+    -- c'est pas très bien tout ça
+    -- En fait ça va presque (val peut être de type FunDef sans que ça pose de problème),
+    -- la partie embêtante étant le propag_var_type qui devrait pouvoir être
+    -- un propag_fun_type
+    -- Ceci est su dès le parsing, donc ici on le sait déjà, pas besoin d'attendre l'inférence !
+
     infer_type (Let var val s (Just [])) = 
         let val' = infer_type val
-            s' = infer_type $ propag_type var (typeof val') s
         in
-            Let var val' s' (typeof s')
+            case val' of
+                FunDef _ _ _ -> let s' = infer_type $ propag_fun_type var (typeof val') s
+                                in Let var val' s' (typeof s')
+                Var _ _ -> let s' = infer_type $ propag_var_type var (typeof val') s
+                           in Let var val' s' (typeof s')
 
 
     
+
     -- Propager le type d'une variable
-    propag_type var t (If cond s1 s2 t_if) =
-        let cond' = propag_type var t cond
-            s1' = propag_type var t s1
-            s2' = propag_type var t s2
+    propag_var_type var t (If cond s1 s2 t_if) =
+        let cond' = propag_var_type var t cond
+            s1' = propag_var_type var t s1
+            s2' = propag_var_type var t s2
         in
             If cond' s1' s2' t_if
 
-    propag_type var t (Expr e t_e) =
-        let e' = propag_type var t e
+    propag_var_type var t (Expr e t_e) =
+        let e' = propag_var_type var t e
         in
             Expr e' t_e
 
-    propag_type var t (Let iden val s t_let) =
-        let val' = propag_type var t val
-            s' = propag_type var t s'
+    propag_var_type var t (Let iden val s t_let) =
+        let val' = propag_var_type var t val
+            s' = propag_var_type var t s'
         in
             Let iden val' s' t_let
     
+
+
+
+    -- Propager le type d'une fonction
+    propag_fun_type var t (If cond s1 s2 t_if) =
+        let cond' = propag_fun_type var t cond
+            s1' = propag_fun_type var t s1
+            s2' = propag_fun_type var t s2
+        in
+            If cond' s1' s2' t_if
+
+    propag_fun_type var t (Expr e t_e) =
+        let e' = propag_fun_type var t e
+        in
+            Expr e' t_e
+
+    propag_fun_type var t (Let iden val s t_let) =
+        let val' = propag_fun_type var t val
+            s' = propag_fun_type var t s'
+        in
+            Let iden val' s' t_let
     
+
+
 
 
 instance Typed Expr where
 
     -- Obtenir le type
-    typeof arg@(Const _ t)      = t
-    typeof arg@(Var _ t)        = t
-    typeof arg@(Un _ _ t)       = t
-    typeof arg@(Bin _ _ _ t)    = t
-    typeof arg@(FunCall _ _ t)  = t
-    typeof arg@(FunDef _ _ t)   = t
+    typeof (Const _ t)      = t
+    typeof (Var _ t)        = t
+    typeof (Un _ _ t)       = t
+    typeof (Bin _ _ _ t)    = t
+    typeof (FunCall _ _ t)  = t
+    typeof (FunDef _ _ t)   = t
 
 
     -- Inférer le type
@@ -181,32 +217,63 @@ instance Typed Expr where
 
 
     -- Propager le type d'une variable
-    propag_type var t (Var var' (Just [])) =
+    propag_var_type var t (Var var' (Just [])) =
         if var == var' then
             Var var' t
         else
             Var var' (Just [])
 
-    propag_type var t (Un op e t_e) = let e' = propag_type var t e in Un op e' t_e
+    propag_var_type var t (Un op e t_e) = let e' = propag_var_type var t e in Un op e' t_e
 
-    propag_type var t (Bin op e1 e2 t_e) =
-        let e1' = propag_type var t e1
-            e2' = propag_type var t e2
+    propag_var_type var t (Bin op e1 e2 t_e) =
+        let e1' = propag_var_type var t e1
+            e2' = propag_var_type var t e2
         in
             Bin op e1' e2' t_e
 
-    propag_type var t (FunCall f args t_f) =
-        let args' = map (propag_type var t) args
+    propag_var_type var t (FunCall f args t_f) =
+        let args' = map (propag_var_type var t) args
         in
             FunCall f args' t_f
 
-    propag_type var t (FunDef f e t_f) =
-        let e' = propag_type var t e
+    propag_var_type var t (FunDef f e t_f) =
+        let e' = propag_var_type var t e
         in
             FunDef f e' t_f
 
     -- Dans les autres cas (const, var djà typée), ne rien faire
-    propag_type var t x = x
+    propag_var_type var t x = x
+
+
+    -- Propager le type des fonctions
+
+    propag_fun_type fun t (Un op e t_e) = let e' = propag_fun_type fun t e in Un op e' t_e
+
+    propag_fun_type fun t (Bin op e1 e2 t_e) =
+        let e1' = propag_fun_type fun t e1
+            e2' = propag_fun_type fun t e2
+        in
+            Bin op e1' e2' t_e
+
+    propag_fun_type fun t (FunCall (f, t_f) args t_call) =
+        let args' = map (propag_fun_type fun t) args
+        in
+            if f == fun then
+                FunCall (f, t) args' t_call
+            else
+                FunCall (f, t_f) args' t_call
+
+    propag_fun_type fun t (FunDef f e t_f) =
+        let e' = propag_fun_type fun t e
+        in
+            FunDef f e' t_f
+
+    -- Dans les autres cas (const, var djà typée), ne rien faire
+    propag_fun_type var t x = x
+
+
+-- TODO : ABSOLUMENT FACTORISER propag_fun_type et propag_var_type
+
 
 
 -- infère le type des variables à partir de leur utilisation
