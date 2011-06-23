@@ -1,5 +1,7 @@
 module Typage where
 
+--- PROCHAINE ÉTAPE : UNE GROSSE REFACTORISATION DE CE QUI MARCHE, ÇA PERMETTRA DE MIEUX COMPRENDRE LE
+-- FONCTIONNEMENT DE MON PROPRE CODE (...), ET ÇA SERA MOINS MOCHE. ENSUITE, ON FINIRA DE DÉBUGGER
 
 import Parsage
 import Text.ParserCombinators.Parsec
@@ -168,7 +170,7 @@ instance Typed Expr where
             valid = and $ map (\(a, t) -> Just [t] == typeof a) types_and_args -- les arguments ont le bon type
         in
             if valid then
-                FunCall (f, Just t_f) args' (Just (snd $ splitAt (length args) t_f))
+                FunCall (f, Just t_f) args' (Just (snd $ splitAt (length args - 1) t_f))
             else
                 FunCall (f, Just t_f) args' Nothing
 
@@ -178,7 +180,7 @@ instance Typed Expr where
     -- n'est utilisé avec deux types différents.
     -- TODO : faire échouer si on a plusieurs types différents pour une var dans le corps de la fonction
     infer_type (FunDef args def (Just [])) =
-        let def' = trace ("\nINFER_TYPE (FunDef) : va appeler infer_var_types avec " ++ show def ++ "\n\n") (infer_var_types $ infer_type def)
+        let def' = trace ("\nINFER_TYPE (FunDef) : va appeler infer_var_types avec " ++ show def ++ "\n\n") (infer_type $ infer_var_types def)
             t = trace ("\n\nThe result was : " ++ show def' ++ "\n\n") (map (type_of_arg def') args) -- :: [Type] = [Maybe [SimpleType]]
             t' = liftM concat $ sequence t  -- sequence ==> Maybe [[SimpleType]], sauf que la liste la plus interne 
                             -- contient des types de variables (donc types simples) -> on peut "applatir" avec concat
@@ -349,7 +351,7 @@ infer_var_types arbre =
 
 
 -- Juste pour tester
-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) * 4 in f(4,2) + 5"
+main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) * 4 in (f(4,2) == 5) || False"
         in
             case ast of 
                 Left err -> print err
