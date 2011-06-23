@@ -141,12 +141,9 @@ instance Typed Expr where
 
 
 -- Juste pour tester
-main = let ast = parse stmt "" "let e = -4 in f a,b,c) + e"
+main = let ast = parse stmt "" "let e = fun(x,y) : (x - y) * 4 in f(a,b,c) + 5"
         in
             case ast of 
-                Left err -> putStrLn "Il y a eu une erreur de parse !"
-                {-Right arbre -> let typed_arbre = infer_type arbre in do { -}
-                                    {-putStrLn $ show arbre;-}
-                                    {-putStrLn $ show typed_arbre;-}
+                Left err -> print err
 
-                Right arbre -> putStrLn $ show arbre;
+                Right arbre -> putStrLn $ show arbre
