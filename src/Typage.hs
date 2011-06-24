@@ -166,7 +166,7 @@ instance Typed Expr where
     infer_type (FunCall (f, Just t_f) args (Just [])) = 
     -- FIXME : ça sent la merde : quel besoin de faire infer_var_types ?! Ah si ! pour vérifier que les types
     -- sont les bons
-        let args' = map infer_var_types args -- inférer le type des variables qui n'en ont pas encore,
+        let args' = map (infer_type.infer_var_types) args -- inférer le type des variables qui n'en ont pas encore,
                                              -- typiquement des variables liées par un lambda. Tous les args' sont typés
             types_and_args = zip args' t_f
             valid = and $ map (\(a, t) -> Just [t] == typeof a) types_and_args -- les arguments ont le bon type
