@@ -4,6 +4,7 @@ module Typage where
 import Parsage
 import Text.ParserCombinators.Parsec
 import Control.Monad
+import Data.Maybe
 
 import System.Environment
 
@@ -35,6 +36,9 @@ class Typed a where
     infer_type :: a -> a
     -- propage le type d'une Var ... ou FunDef ... au sous-arbre
     propag_type :: String -> Type -> a -> a
+    infer_var_types :: a -> a -- utilisé pour inférer les types des paramètres des fonctions
+    type_of_arg :: a -> String -> Type -- pour récupérer les types des param des fonctions précédemment inférées par
+                                       -- infer_var_types (on a le droit de trouver ça tordu)
 
 
 
@@ -67,6 +71,7 @@ instance Typed Statement where
         in
             Let var val' s' (typeof s')
 
+    infer_type other = other
 
     
     propag_type iden t e =
@@ -88,6 +93,35 @@ instance Typed Statement where
                     s' = propag_type iden t s
                 in
                     Let name val' s' t_let
+
+
+
+    infer_var_types (Expr e t) = let e' = infer_var_types e in Expr e' t
+
+    infer_var_types (If cond e1 e2 t) =
+        let cond' = infer_var_types cond
+            e1' = infer_var_types e1
+            e2' = infer_var_types e2
+        in
+            If cond' e1' e2' t
+
+    infer_var_types (Let var val s t) =
+        let val' = infer_var_types val
+            s' = infer_var_types s
+        in
+            Let var val' s' t
+
+
+
+    type_of_arg def arg =
+       case def of
+           Expr e t_e -> type_of_arg e arg
+           
+
+           If cond e1 e2 t_cond -> type_of_arg cond arg `mplus` type_of_arg e1 arg `mplus` type_of_arg e2 arg
+
+           Let var val s t_let -> type_of_arg val arg `mplus` type_of_arg s arg
+
 
 
 
@@ -150,28 +184,29 @@ instance Typed Expr where
     infer_type (FunDef args def (Just [])) =
         let def' = infer_type $ infer_var_types def
             t = map (type_of_arg def') args -- :: [Type] = [Maybe [SimpleType]]
-            t' = liftM concat $ sequence (t ++ [typeof def'])  -- sequence ==> Maybe [[SimpleType]], sauf que la liste la plus interne 
+
+            -- ici la partie moche (mais pas mieux pour l'instant) :
+            --      on a inféré les types des variables, mais il est possible
+            --      qu'elles apparaissent à d'autres endroits dans le statement où leur inférence
+            --      n'a pas été possible (ex : if x < y then x else y).
+            --      Il nous faut donc, pour chaque variable inférée, à nouveau propager son type
+            --      dans la définition de la fonction. Attention les yeux...
+            --
+            --      FIXME : là ça devient vraiment plus possible de parcourir 1000 fois l'arbre et faire
+            --      des trucs tordus comme ça...
+            l1 = map propag_type args
+            t_args = t ++ [typeof def']
+            l2 = zipWith ($) l1 t_args
+            propag_fun = foldl (.) id l2
+            def'' = infer_type $ propag_fun def' 
+            t' = liftM concat $ sequence (t ++ [typeof def''])  -- sequence ==> Maybe [[SimpleType]], sauf que la liste la plus interne 
                                             -- contient des types de variables (donc types simples, un seul élément)
                                             -- -> on peut "applatir" avec concat
-            
         in
-            FunDef args def' t'
+            FunDef args def'' t'
 
             -- Là où on aime les MonadPlus :-)
-            where 
-                type_of_arg def arg =
-                    case def of
-                            -- Attention, les types des variables doivent déjà être inférés
-                            -- dans la définition examinée
-                        Var name t -> if name == arg then  t else Nothing
-                        Un _ e _ -> type_of_arg e arg
-                        Bin _ e1 e2 _ -> type_of_arg e1 arg `mplus` type_of_arg e2 arg
-                        FunCall _ fun_args _ ->
-                            let pot_types = map (\e -> type_of_arg e arg) fun_args
-                            in
-                                msum pot_types
-
-                        FunDef _ _ _ -> Nothing
+            -- FIXME : on pourrait peut-être en faire une fonction de la Type class Typed
             
     -- Inférer le type d'une lambda est le plus tricky de ce qu'il y a jusqu'à présent. Il faut :
     --      - inférer le type des variables en regardant leurs apparitions dans la 
@@ -218,7 +253,7 @@ instance Typed Expr where
         | otherwise =
             let args' = map (propag_type iden (Just t)) args
             in
-                FunCall(f, Just t) args' t_call
+                FunCall(f, Just []) args' t_call
 
     -- Pour les fonctions déjà typées
     propag_type iden t (FunCall f args t_call) =
@@ -248,70 +283,84 @@ instance Typed Expr where
 
 
 
-
--- infère le type des variables à partir de leur utilisation
---
--- Et les cas récursifs avec d'autres expressions ??!! Faudrait peut-être les faire !
---
-infer_var_types :: Expr -> Expr
-infer_var_types arbre =
-    case arbre of
-        Un (op, Just t_op) (Var x (Just [])) t -> 
-            let t_var = Just [t_op !! 1]
-            in
-                Un (op, Just t_op) (Var x t_var) t
-
-        Un op e t ->
-            let e' = infer_var_types e
-            in
-                Un op e' t
-
-        Bin (op, Just t_op) (Var x (Just [])) (Var y (Just [])) t ->
-            let t_x = Just [t_op !! 1]
-                t_y = Just [t_op !! 2]
-            in
-                Bin (op, Just t_op) (Var x t_x) (Var y t_y) t
-
-        Bin (op, Just t_op) (Var x (Just [])) y t ->
-            let t_x = Just [t_op !! 1]
-                y' = infer_var_types y
-            in
-                Bin (op, Just t_op) (Var x t_x) y' t
-
-        Bin (op, Just t_op) x (Var y (Just [])) t ->
-            let t_y = Just [t_op !! 2]
-                x' = infer_var_types x
-            in
-                Bin (op, Just t_op) x' (Var y t_y) t
-
-        Bin op e1 e2 t ->
-            let e1' = infer_var_types e1
-                e2' = infer_var_types e2
-            in
-                Bin op e1' e2' t
-
-
-        FunCall (f, Just t_f) args t_rslt ->
-            if length args > length t_f then
-                FunCall (f, Just t_f) args Nothing
-            else
-                let types_and_args = zip t_f args
-                    args' = map type_vars types_and_args -- FIXME : un argument de fonction n'est pas forcément Var ou Const...
+    -- infère le type des variables à partir de leur utilisation
+    --
+    -- Et les cas récursifs avec d'autres expressions ??!! Faudrait peut-être les faire !
+    --
+    infer_var_types arbre =
+        case arbre of
+            Un (op, Just t_op) (Var x (Just [])) t -> 
+                let t_var = Just [t_op !! 0]
                 in
-                    FunCall (f, Just t_f) args' t_rslt
-                where
-                    -- On type les variables liées par lambda, donc celles qui n'ont pas encore de type
-                    -- (les autres en ont une par propagation de let dans le processus d'inférence)
-                    type_vars (t, Var x (Just [])) = Var x (Just [t])
-                    type_vars (t, x) = x
+                    Un (op, Just t_op) (Var x t_var) t
 
-        -- si le type n'est pas Just [], la var a déjà été typée par propagation
-        _ -> arbre
+            Un op e t ->
+                let e' = infer_var_types e
+                in
+                    Un op e' t
+
+            Bin (op, Just t_op) (Var x (Just [])) (Var y (Just [])) t ->
+                let t_x = Just [t_op !! 0]
+                    t_y = Just [t_op !! 1]
+                in
+                    Bin (op, Just t_op) (Var x t_x) (Var y t_y) t
+
+            Bin (op, Just t_op) (Var x (Just [])) y t ->
+                let t_x = Just [t_op !! 0]
+                    y' = infer_var_types y
+                in
+                    Bin (op, Just t_op) (Var x t_x) y' t
+
+            Bin (op, Just t_op) x (Var y (Just [])) t ->
+                let t_y = Just [t_op !! 1]
+                    x' = infer_var_types x
+                in
+                    Bin (op, Just t_op) x' (Var y t_y) t
+
+            Bin op e1 e2 t ->
+                let e1' = infer_var_types e1
+                    e2' = infer_var_types e2
+                in
+                    Bin op e1' e2' t
+
+
+            FunCall (f, Just t_f) args t_rslt ->
+                if length args > length t_f then
+                    FunCall (f, Just t_f) args Nothing
+                else
+                    let types_and_args = zip t_f args
+                        args' = map type_vars types_and_args -- FIXME : un argument de fonction n'est pas forcément Var ou Const...
+                    in
+                        FunCall (f, Just t_f) args' t_rslt
+                    where
+                        -- On type les variables liées par lambda, donc celles qui n'ont pas encore de type
+                        -- (les autres en ont une par propagation de let dans le processus d'inférence)
+                        type_vars (t, Var x (Just [])) = Var x (Just [t])
+                        type_vars (t, x) = x
+
+            -- si le type n'est pas Just [], la var a déjà été typée par propagation
+            _ -> arbre
 
         ----- Normalement, après passage d'une expression dans cette fonction, toutes les variables
         -- liées par des let ont été typées par propagation (il faudra appeler infer_type expr !), et
         -- tous les types des variables liées dans la lambda ont été déduit de leur contexte d'utilisation
         -- TODO : mettre cette fonction au bon endroit ! (peut-être une locale tout simplement...)
+
+
+    type_of_arg def arg =
+        case def of
+            -- Attention, les types des variables doivent déjà être inférés
+            -- dans la définition examinée
+            Var name t -> if name == arg then t else Nothing
+            Un _ e _ -> type_of_arg e arg
+            Bin _ e1 e2 _ -> type_of_arg e1 arg `mplus` type_of_arg e2 arg
+            FunCall _ fun_args _ ->
+                let pot_types = map (\e -> type_of_arg e arg) fun_args
+                in
+                    msum pot_types
+
+            FunDef _ _ _ -> Nothing
+
         
 
 
