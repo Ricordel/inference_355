@@ -208,13 +208,13 @@ table = [
             [ unop "!" (mkNot), unop "-" (mkNegative) ]
             , [ unop "str2int" (mkStr2int), unop "str2float" (mkStr2float), unop "str2bool" (mkStr2bool) ]
             , [ unop "int2str" (mkInt2str), unop "float2str" (mkFloat2str), unop "bool2str" (mkBool2str) ]
-            , [ binop "&&" (mkAnd) AssocLeft ]
-            , [ binop "||" (mkOr) AssocLeft ]
-            , [ binop ">" (mkSup) AssocNone, binop "<" (mkInf) AssocNone, binop ">=" (mkSupEq) AssocNone, binop "<=" (mkInfEq) AssocNone ]
-            , [ binop "==" (mkEquals) AssocNone, binop "!=" (mkDiff) AssocNone ]
             , [ binop "*" (mkMult) AssocLeft, binop "/" (mkDiv) AssocLeft ]
             , [ binop "+" (mkPlus) AssocLeft, binop "-" (mkMinus) AssocLeft ]
             , [ binop "++" (mkConcat) AssocLeft ]
+            , [ binop "==" (mkEquals) AssocNone, binop "!=" (mkDiff) AssocNone ]
+            , [ binop ">" (mkSup) AssocNone, binop "<" (mkInf) AssocNone, binop ">=" (mkSupEq) AssocNone, binop "<=" (mkInfEq) AssocNone ]
+            , [ binop "&&" (mkAnd) AssocLeft ]
+            , [ binop "||" (mkOr) AssocLeft ]
         ]
         where
             binop str fun assoc =

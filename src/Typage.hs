@@ -313,7 +313,7 @@ infer_var_types arbre =
 
 
 -- Juste pour tester
-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) * 4 in if True then let x = 4 in x <= 3 else if (True && False) then f(5, 4) == 2 else True"
+main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) * 4 in if True then let x = 4 in x+2 <= 3 else if (True && False) then f(5, 4) == 2 else True"
 {-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) * 4 in if True then let x = 0 in x + f(4, 5) else  4"-}
 {-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) in let a = b in 4"-}
         in
