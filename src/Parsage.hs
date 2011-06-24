@@ -75,7 +75,7 @@ type Type = Maybe [SimpleType]
 
 data Statement = Expr Expr Type
                | If Expr Statement Statement Type
-               | Let String Expr Statement Type
+               | Let String Statement Statement Type
                deriving Show
 
 
@@ -84,7 +84,7 @@ data Expr = Const Con Type
             | Un (UnOp, Type) Expr Type
             | Bin (BinOp, Type) Expr Expr Type
             | FunCall (String, Type) [Expr] Type -- le premier Type est celui de la fonction, le 2è celui du résultat de son application aux arguments
-            | FunDef [String] Expr Type -- args, corps de la lambda
+            | FunDef [String] Statement Type -- args, corps de la lambda
             deriving Show
 
 
@@ -177,7 +177,7 @@ stmt =
             reserved "let";
             ident <- identifier;
             reserved "=";
-            val <- expr;
+            val <- stmt;
             reserved "in";
             {-symbol "{";-}
             st <- stmt;
@@ -281,7 +281,7 @@ factor = parens expr
          do { reserved "fun";
               args <- parens $ commaSep1 identifier;
               symbol ":";
-              def <- expr;
+              def <- stmt;
               return $ FunDef args def (Just [])
          } 
          <|>

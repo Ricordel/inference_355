@@ -1,7 +1,5 @@
 module Typage where
 
---- PROCHAINE ÉTAPE : UNE GROSSE REFACTORISATION DE CE QUI MARCHE, ÇA PERMETTRA DE MIEUX COMPRENDRE LE
--- FONCTIONNEMENT DE MON PROPRE CODE (...), ET ÇA SERA MOINS MOCHE. ENSUITE, ON FINIRA DE DÉBUGGER
 
 import Parsage
 import Text.ParserCombinators.Parsec
@@ -223,7 +221,10 @@ instance Typed Expr where
                 FunCall(f, Just t) args' t_call
 
     -- Pour les fonctions déjà typées
-    propag_type iden t fc@(FunCall _ _ _) = fc
+    propag_type iden t (FunCall f args t_call) =
+        let args' = map (propag_type iden t) args
+        in
+            FunCall f args' t_call
 
     -- Tous les autres cas sont de simples appels récursifs
     propag_type iden t c@(Const _ _) = c
@@ -273,13 +274,15 @@ infer_var_types arbre =
 
         Bin (op, Just t_op) (Var x (Just [])) y t ->
             let t_x = Just [t_op !! 1]
+                y' = infer_var_types y
             in
-                Bin (op, Just t_op) (Var x t_x) y t
+                Bin (op, Just t_op) (Var x t_x) y' t
 
         Bin (op, Just t_op) x (Var y (Just [])) t ->
             let t_y = Just [t_op !! 2]
+                x' = infer_var_types x
             in
-                Bin (op, Just t_op) x (Var y t_y) t
+                Bin (op, Just t_op) x' (Var y t_y) t
 
         Bin op e1 e2 t ->
             let e1' = infer_var_types e1
