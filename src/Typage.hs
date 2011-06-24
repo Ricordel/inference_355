@@ -7,6 +7,8 @@ import Parsage
 import Text.ParserCombinators.Parsec
 import Control.Monad
 
+import System.Environment
+
 import Debug.Trace
 
 
@@ -313,15 +315,19 @@ infer_var_types arbre =
 
 
 -- Juste pour tester
-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) * 4 in if True then let x = 4 in x+2 <= 3 else if (True && False) then f(5, 4) == 2 else True"
+{-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) * 4 in if True then let x = 4 in x+2 <= 3 else if (True && False) then f(5, 4) == 2 else True"-}
 {-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) * 4 in if True then let x = 0 in x + f(4, 5) else  4"-}
 {-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) in let a = b in 4"-}
-        in
-            case ast of 
-                Left err -> print err
 
-                Right arbre -> (putStrLn $ show arbre) >> (putStrLn "\n\n") >>
-                               (putStrLn $ show (infer_type arbre))
+main = do
+        file_name : other_args <- getArgs
+        rslt <- parseFromFile stmt file_name
+        case rslt of
+            Left err -> print err
+            Right ast -> (putStrLn (show ast)) >> (putStrLn "\n\n") >> (putStrLn (show $ infer_type ast))
+
+                {-Right arbre -> (putStrLn $ show arbre) >> (putStrLn "\n\n") >>-}
+                               {-(putStrLn $ show (infer_type arbre))-}
 
 
 
