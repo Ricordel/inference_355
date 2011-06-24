@@ -33,9 +33,9 @@ import Debug.Trace
 class Typed a where
     typeof :: a -> Type
     infer_type :: a -> a
-    -- utilisé pour propager le type d'une variable définie avec un let
-    propag_var_type :: String -> Type -> a -> a
-    propag_fun_type :: String -> Type -> a -> a
+    -- propage le type d'une Var ... ou FunDef ... au sous-arbre
+    propag_type :: String -> Type -> a -> a
+
 
 
 
@@ -61,68 +61,34 @@ instance Typed Statement where
     infer_type (Expr e (Just [])) = let e' = infer_type e in Expr e' (typeof e')
 
 
-    -- ET pour les fonctions, on fait quoi ?! => on dirait que c'est plus au même niveau,
-    -- c'est pas très bien tout ça
-    -- En fait ça va presque (val peut être de type FunDef sans que ça pose de problème),
-    -- la partie embêtante étant le propag_var_type qui devrait pouvoir être
-    -- un propag_fun_type
-    -- Ceci est su dès le parsing, donc ici on le sait déjà, pas besoin d'attendre l'inférence !
-
     infer_type (Let var val s (Just [])) = 
         let val' = infer_type val
+            s' = infer_type $ propag_type var (typeof val') s
         in
-            case val' of
-                FunDef _ _ _ -> let s' = infer_type $ propag_fun_type var (typeof val') s
-                                in Let var val' s' (typeof s')
-                Var _ _ -> let s' = infer_type $ propag_var_type var (typeof val') s
-                           in Let var val' s' (typeof s')
-                {-Const _ _ -> let s' = infer_type $ propag_var_type var (typeof val') s-}
-                Const _ _ -> let s' = propag_var_type var (typeof val') s in s'
+            Let var val' s' (typeof s')
 
 
     
+    propag_type iden t e =
+        case e of 
+            If cond s1 s2 t_if ->
+                let cond' = propag_type iden t cond
+                    s1' = propag_type iden t s1
+                    s2' = propag_type iden t s2
+                in
+                    If cond' s1' s2' t_if
 
-    -- Propager le type d'une variable
-    propag_var_type var t (If cond s1 s2 t_if) =
-        let cond' = propag_var_type var t cond
-            s1' = propag_var_type var t s1
-            s2' = propag_var_type var t s2
-        in
-            If cond' s1' s2' t_if
+            Expr e t_e ->
+                let e' = propag_type iden t e
+                in
+                    Expr e' t_e
 
-    propag_var_type var t (Expr e t_e) =
-        let e' = propag_var_type var t e
-        in
-            Expr e' t_e
+            Let name val s t_let ->
+                let val' = propag_type iden t val
+                    s' = propag_type iden t s
+                in
+                    Let name val' s' t_let
 
-    propag_var_type var t (Let iden val s t_let) =
-        let val' = propag_var_type var t val
-            s' = propag_var_type var t s'
-        in
-            Let iden val' s' t_let
-    
-
-
-
-    -- Propager le type d'une fonction
-    propag_fun_type var t (If cond s1 s2 t_if) =
-        let cond' = propag_fun_type var t cond
-            s1' = propag_fun_type var t s1
-            s2' = propag_fun_type var t s2
-        in
-            If cond' s1' s2' t_if
-
-    propag_fun_type var t (Expr e t_e) =
-        let e' = propag_fun_type var t e
-        in
-            Expr e' t_e
-
-    propag_fun_type var t (Let iden val s t_let) =
-        let val' = propag_fun_type var t val
-            s' = propag_fun_type var t s'
-        in
-            Let iden val' s' t_let
-    
 
 
 
@@ -172,7 +138,7 @@ instance Typed Expr where
             valid = and $ map (\(a, t) -> Just [t] == typeof a) types_and_args -- les arguments ont le bon type
         in
             if valid then
-                FunCall (f, Just t_f) args' (Just (snd $ splitAt (length args - 1) t_f))
+                FunCall (f, Just t_f) args' (Just (snd $ splitAt (length args) t_f))
             else
                 FunCall (f, Just t_f) args' Nothing
 
@@ -210,7 +176,7 @@ instance Typed Expr where
     -- Inférer le type d'une lambda est le plus tricky de ce qu'il y a jusqu'à présent. Il faut :
     --      - inférer le type des variables en regardant leurs apparitions dans la 
     --        définition de la fonction, en vérifiant qu'il n'y a pas de conflit (une variable
-    --        qui devrait avori deux types)
+    --        qui devrait avoir deux types)
     
 
     -- Pour le reste, rien besoin de faire, le type a déjà été inféré
@@ -221,63 +187,62 @@ instance Typed Expr where
 
 
 
-    -- Propager le type d'une variable
-    propag_var_type var t (Var var' (Just [])) =
-        if var == var' then
-            Var var' t
-        else
-            Var var' (Just [])
+    -- Propager le type d'une variable ou d'une fonction bindée par let
+    --
+    -- Deux cas où on fait "vraiment" quelque chose :
+    --      - une variable avec le même nom
+    --      - une fonction avec le même nom
+    --
+    -- TODO : mettre un joli message d'erreur dans le cas otherwise au lieu de juste retourner Nothing
 
-    propag_var_type var t (Un op e t_e) = let e' = propag_var_type var t e in Un op e' t_e
-
-    propag_var_type var t (Bin op e1 e2 t_e) =
-        let e1' = propag_var_type var t e1
-            e2' = propag_var_type var t e2
-        in
-            Bin op e1' e2' t_e
-
-    propag_var_type var t (FunCall f args t_f) =
-        let args' = map (propag_var_type var t) args
-        in
-            FunCall f args' t_f
-
-    propag_var_type var t (FunDef f e t_f) =
-        let e' = propag_var_type var t e
-        in
-            FunDef f e' t_f
-
-    -- Dans les autres cas (const, var djà typée), ne rien faire
-    propag_var_type var t x = x
-
-
-    -- Propager le type des fonctions
-
-    propag_fun_type fun t (Un op e t_e) = let e' = propag_fun_type fun t e in Un op e' t_e
-
-    propag_fun_type fun t (Bin op e1 e2 t_e) =
-        let e1' = propag_fun_type fun t e1
-            e2' = propag_fun_type fun t e2
-        in
-            Bin op e1' e2' t_e
-
-    propag_fun_type fun t (FunCall (f, t_f) args t_call) =
-        let args' = map (propag_fun_type fun t) args
-        in
-            if f == fun then
-                FunCall (f, t) args' t_call
+    propag_type iden (Just t) v@(Var name (Just []))
+        | iden == name = 
+            if length t == 1 then -- il nous faut une variable
+                Var name (Just t)
             else
-                FunCall (f, t_f) args' t_call
+                Var iden Nothing -- var avec type composé -> interdit (pas d'appli partielle pour l'instant)
+        | otherwise = v
+            
+    -- pour les variables déjà typées
+    propag_type iden t v@(Var _ _) = v
 
-    propag_fun_type fun t (FunDef f e t_f) =
-        let e' = propag_fun_type fun t e
+    propag_type iden (Just t) (FunCall (f, Just []) args t_call)
+        | iden == f =
+            if length t == length args + 1 then
+                let args' = map (propag_type iden (Just t)) args
+                in
+                    FunCall (f, Just t) args' t_call
+            else -- application partielle, non supportée pour l'instant
+                FunCall (f, Nothing) args Nothing
+
+        | otherwise =
+            let args' = map (propag_type iden (Just t)) args
+            in
+                FunCall(f, Just t) args' t_call
+
+    -- Pour les fonctions déjà typées
+    propag_type iden t fc@(FunCall _ _ _) = fc
+
+    -- Tous les autres cas sont de simples appels récursifs
+    propag_type iden t c@(Const _ _) = c
+
+    propag_type iden t (Un op e t_rslt) =
+        let e' = propag_type iden t e
+        in Un op e' t_rslt
+
+    propag_type iden t (Bin op e1 e2 t_rslt) =
+        let e1' = propag_type iden t e1
+            e2' = propag_type iden t e2
         in
-            FunDef f e' t_f
+            Bin op e1' e2' t_rslt
+            
+    propag_type iden t (FunDef args def t_fun) =
+        let def' = propag_type iden t def
+        in
+            FunDef args def' t_fun
 
-    -- Dans les autres cas (const, var djà typée), ne rien faire
-    propag_fun_type var t x = x
 
 
--- TODO : ABSOLUMENT FACTORISER propag_fun_type et propag_var_type
 
 
 
@@ -348,9 +313,9 @@ infer_var_types arbre =
 
 
 -- Juste pour tester
-{-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) * 4 in if True then let x = 4 in x + f(4, 5) else if (True && False) then f(5, 4) else 4"-}
+main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) * 4 in if True then let x = 4 in x <= 3 else if (True && False) then f(5, 4) == 2 else True"
 {-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) * 4 in if True then let x = 0 in x + f(4, 5) else  4"-}
-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) in let a = 0 in a + 4"
+{-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) in let a = b in 4"-}
         in
             case ast of 
                 Left err -> print err

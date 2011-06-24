@@ -158,7 +158,10 @@ prog = do
 
 -- 3 formes possibles pour le statement
 stmt :: Parser Statement
-stmt = do { 
+stmt = 
+        parens stmt
+        <|>
+        do { 
             -- if cond then if_true else if_false
             reserved "if";
             cond <- expr;
@@ -176,7 +179,9 @@ stmt = do {
             reserved "=";
             val <- expr;
             reserved "in";
+            {-symbol "{";-}
             st <- stmt;
+            {-symbol "}";-}
             return (Let ident val st (Just []));
         }
         <|>
