@@ -76,6 +76,8 @@ instance Typed Statement where
                                 in Let var val' s' (typeof s')
                 Var _ _ -> let s' = infer_type $ propag_var_type var (typeof val') s
                            in Let var val' s' (typeof s')
+                {-Const _ _ -> let s' = infer_type $ propag_var_type var (typeof val') s-}
+                Const _ _ -> let s' = propag_var_type var (typeof val') s in s'
 
 
     
@@ -180,10 +182,11 @@ instance Typed Expr where
     -- n'est utilisé avec deux types différents.
     -- TODO : faire échouer si on a plusieurs types différents pour une var dans le corps de la fonction
     infer_type (FunDef args def (Just [])) =
-        let def' = trace ("\nINFER_TYPE (FunDef) : va appeler infer_var_types avec " ++ show def ++ "\n\n") (infer_type $ infer_var_types def)
-            t = trace ("\n\nThe result was : " ++ show def' ++ "\n\n") (map (type_of_arg def') args) -- :: [Type] = [Maybe [SimpleType]]
-            t' = liftM concat $ sequence t  -- sequence ==> Maybe [[SimpleType]], sauf que la liste la plus interne 
-                            -- contient des types de variables (donc types simples) -> on peut "applatir" avec concat
+        let def' = infer_type $ infer_var_types def
+            t = map (type_of_arg def') args -- :: [Type] = [Maybe [SimpleType]]
+            t' = liftM concat $ sequence (t ++ [typeof def'])  -- sequence ==> Maybe [[SimpleType]], sauf que la liste la plus interne 
+                                            -- contient des types de variables (donc types simples, un seul élément)
+                                            -- -> on peut "applatir" avec concat
             
         in
             FunDef args def' t'
@@ -194,7 +197,7 @@ instance Typed Expr where
                     case def of
                             -- Attention, les types des variables doivent déjà être inférés
                             -- dans la définition examinée
-                        Var name t -> if name == arg then trace ("TYPE_OF_ARGS (VAR) Just : " ++ show t ++ ", " ++ name) t else trace ("TYPE_OF_ARGS (VAR - Nothing) " ++ name)  Nothing
+                        Var name t -> if name == arg then  t else Nothing
                         Un _ e _ -> type_of_arg e arg
                         Bin _ e1 e2 _ -> type_of_arg e1 arg `mplus` type_of_arg e2 arg
                         FunCall _ fun_args _ ->
@@ -288,8 +291,7 @@ infer_var_types arbre =
         Un (op, Just t_op) (Var x (Just [])) t -> 
             let t_var = Just [t_op !! 1]
             in
-                trace ("INFER_VAR_TYPES (Un) : a inféré le type " ++ show t_var ++ " pour la variable " ++ x)
-                (Un (op, Just t_op) (Var x t_var) t)
+                Un (op, Just t_op) (Var x t_var) t
 
         Un op e t ->
             let e' = infer_var_types e
@@ -300,21 +302,17 @@ infer_var_types arbre =
             let t_x = Just [t_op !! 1]
                 t_y = Just [t_op !! 2]
             in
-                trace ("INFER_VAR_TYPES (Bin) : a inféré le type " ++ show t_x ++ " pour la variable " ++ x
-                ++ "INFER_VAR_TYPES (Bin) : a inféré le type " ++ show t_y ++ " pour la variable " ++ y)
-                (Bin (op, Just t_op) (Var x t_x) (Var y t_y) t)
+                Bin (op, Just t_op) (Var x t_x) (Var y t_y) t
 
         Bin (op, Just t_op) (Var x (Just [])) y t ->
             let t_x = Just [t_op !! 1]
             in
-                trace ("INFER_VAR_TYPES (Bin) : a inféré le type " ++ show t_x ++ " pour la variable " ++ x)
-                (Bin (op, Just t_op) (Var x t_x) y t)
+                Bin (op, Just t_op) (Var x t_x) y t
 
         Bin (op, Just t_op) x (Var y (Just [])) t ->
             let t_y = Just [t_op !! 2]
             in
-                trace ("INFER_VAR_TYPES (Bin) : a inféré le type " ++ show t_y ++ " pour la variable " ++ y)
-                (Bin (op, Just t_op) x (Var y t_y) t)
+                Bin (op, Just t_op) x (Var y t_y) t
 
         Bin op e1 e2 t ->
             let e1' = infer_var_types e1
@@ -328,10 +326,9 @@ infer_var_types arbre =
                 FunCall (f, Just t_f) args Nothing
             else
                 let types_and_args = zip t_f args
-                    args' = map type_vars types_and_args
+                    args' = map type_vars types_and_args -- FIXME : un argument de fonction n'est pas forcément Var ou Const...
                 in
-                    trace ("INFER_VAR_TYPES (FunCall) : a inféré un type ")
-                    (FunCall (f, Just t_f) args' t_rslt)
+                    FunCall (f, Just t_f) args' t_rslt
                 where
                     -- On type les variables liées par lambda, donc celles qui n'ont pas encore de type
                     -- (les autres en ont une par propagation de let dans le processus d'inférence)
@@ -351,10 +348,21 @@ infer_var_types arbre =
 
 
 -- Juste pour tester
-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) * 4 in (f(4,2) == 5) || False"
+{-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) * 4 in if True then let x = 4 in x + f(4, 5) else if (True && False) then f(5, 4) else 4"-}
+{-main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) * 4 in if True then let x = 0 in x + f(4, 5) else  4"-}
+main = let ast = parse stmt "" "let f = fun(x,y) : (x - y) in let a = 0 in a + 4"
         in
             case ast of 
                 Left err -> print err
 
-                Right arbre -> {-(putStrLn $ show arbre) >> (putStrLn "\n\n") >>-}
+                Right arbre -> (putStrLn $ show arbre) >> (putStrLn "\n\n") >>
                                (putStrLn $ show (infer_type arbre))
+
+
+
+-- Les problèmes du moment : 
+--      - grammaire récursive à gauche -> boucle infinie lorsqu'on imbrique des let
+--        (or je veux absolument pouvoir imbriquer des let !)
+--      - on ne peut pas utiliser une fonction comme argument d'une autre fonction,
+--        car le typage échoue ==> Normal, on appelle type_vars pour typer les arguments...
+--      - Changer la précédence de == par rapport à && et ||
