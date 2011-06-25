@@ -42,4 +42,4 @@ main = do
         rslt <- parseFromFile stmt file_name
         case rslt of
             Left err -> print err
-            Right ast -> (putStrLn (show ast)) >> (putStrLn "\n\n") >> (putStrLn (show $ infer_type ast)) >> (putStrLn "\n\n") >> (putStrLn $ format_output $ infer_type ast)
+            Right ast -> (putStrLn (show $ infer_type ast)) >> (putStrLn "\n\n") >> (putStrLn $ format_output $ infer_type ast)
