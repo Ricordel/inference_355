@@ -158,18 +158,7 @@ instance Typed Statement where
     infer_args (Expr e t) = let e' = infer_args e in Expr e' t
 
 
-    -- le fait que les deux branches d'un If aient le même type peut également servir
-    -- FIXME : tous les cas ne sont pas terminés !
-    {-infer_args (If cond (Expr (Var v (Just [])) t_e) c@(Expr (Const _ t_c) _) t_if) =-}
-        {-let cond' = infer_args cond-}
-        {-in-}
-            {-If cond' (Expr (Var v t_c) t_e) c t_if-}
-
-    {-infer_args (If cond c@(Expr (Const _ t_c) _) (Expr (Var v (Just [])) t_e) t_if) =-}
-        {-let cond' = infer_args cond-}
-        {-in-}
-            {-If cond' c (Expr (Var v t_c) t_e) t_if-}
-
+    -- le fait que les deux branches d'un If aient le même type peut également servir à calculer des types
     infer_args (If cond (Expr (Var v (Just [])) t_e) e2 t_if) =
         let e2' = infer_args e2
             cond' = infer_args cond

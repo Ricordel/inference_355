@@ -27,7 +27,8 @@ format_statement _ = ""
 -- formate un type pour passer de [t, t', t'', ...] à la notation plus habituelle
 -- t -> t' -> t'' -> ...
 format_type :: Type -> String
-format_type (Just []) = " gros échec !"
+format_type Nothing = "Enorme échec ! (le typage a échoué)"
+format_type (Just []) = " gros échec ! (n'a pas été typé...)"
 format_type (Just t) =
     let str_t = map show t
     in
