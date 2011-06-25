@@ -1,13 +1,10 @@
--- Dans un premier temps, on va parser des expressions contenant des fonctions,
--- des opérateurs binaires infixes, un - préfixe, ...
--- Le résultat sera un arbre que l'on pourra décorer des types des expressions...
-
 ------------------------------------------------------------------------------------
 -- La première étape consiste en le parsage des expressions que nous allons
 -- utiliser. Elles resteront très simple, seules seront implémentées les expressions
 -- du style
 --      - if cond then action_si_true else action_si_false
 --      - let var = expression in action
+--      - let f = fun(arg1, ..., argn) : définition_fonction in statement
 --      - les expressions arithmétiques classiques plus quelques autres fonctions
 --        et opérateurs built-in comme ++ (concat), str2int, ...
 ------------------------------------------------------------------------------------
@@ -19,6 +16,7 @@
 {-
   statement ::= if expr then statement else statement
             | let var = expr in statement
+            | let f = fun(arg1, ..., argn) : statement in statement
             | expr
  
  expr ::= const | var | (expr) | unOp expr | expr binOp expr
@@ -53,9 +51,8 @@ import Text.ParserCombinators.Parsec.Language
 --
 
 -- Nos types de base sont réduits à des choses simples, Polym est prévu
--- pour pouvoir gérer des fonctions polymorphes (non utilisé pour l'instant)
+-- pour pouvoir gérer des fonctions polymorphes (non utilisé finalement)
 
--- TODO : ajouter des listes serait pas mal
 data SimpleType = Int | Float | Bool | String | Polym Char deriving (Eq, Show)
 
 
@@ -66,7 +63,6 @@ data SimpleType = Int | Float | Bool | String | Polym Char deriving (Eq, Show)
 --      - Just [qqch] un type qui a été calculé
 --      - Just [] est le type donné aux expressions dont le type n'a pas encore été calculé
 --
--- TODO : ça fait beaucoup de Just partout dans le code de Typage, essayer de trouver mieux...
 type Type = Maybe [SimpleType]
 
 
@@ -90,8 +86,7 @@ data Expr = Const Con Type
 
 data Con = In Integer | Fl Double | Boolean Bool | Str String deriving Show
 
--- TODO : pour l'instant les fonctions sont unaires et hard-codées, prochaîne étape :
--- TODO gérer la déclaration de fonctions
+-- Les fonctions built-in sont hard-codées ici.............
 data UnOp = Not | Negative | Int2str | Float2str | Bool2str | Str2int | Str2float | Str2bool deriving Show
 
 data BinOp = Plus | Minus | Mult | Div | And | Or | Equals | Diff | Inf | Sup | InfEq | SupEq | Concat deriving Show
@@ -147,7 +142,7 @@ commaSep1 = PT.commaSep1 lexer -- pour la séparation des arguments de fonction
 -- Pour le toplevel, nous devons gérer "à la main" (mais on est bien aidés quand
 -- même) les espaces blancs du départ. On vérifie aussi la présence de eof afin
 -- qu'une parenthèse fermante de trop ne nous fasse pas croire qu'on a terminé
--- de parses avec succès alors qu'on s'est en fait arrêté à la moitié du programme...
+-- de parser avec succès alors qu'on s'est en fait arrêté à la moitié du programme...
 prog :: Parser Statement
 prog = do 
             whiteSpace
@@ -194,8 +189,6 @@ stmt =
 
 -- En ce qui concerne les expressions, Parsec fourni un utilitaire très pratique pour parser ce genre
 -- de choses. Il suffit de lui fournir la liste de nos opérateurs et fonctions built-in, et il se débrouille.
--- TODO : il serait bien de déclarer nos opérateurs et fonctions built-in dans un fichier séparé plutôt que
--- directement dans le code source, on verra plus tard
 expr :: Parser Expr
 expr = buildExpressionParser table factor
 
@@ -222,9 +215,7 @@ table = [
                 -- le <?> est là pour améliorer les messages d'erreur lors du parsage
             unop str fun = Prefix( do { reservedOp str; return fun } <?> "Unary Operator" )
 
--- FIXME  ceci est le code le moins modulaire et le moins factorisé du monde,
--- FIXME  ça serait bien de trouver une solution moins moche
---
+-- FIXME  ceci est le code le moins modulaire et le moins factorisé du monde, mais le but c'est pas le parsage
             mkNot e       = Un (Not, Just [Bool, Bool])          e (Just [])
             mkNegative e  = Un (Negative, Just [Int, Int])       e (Just [])
             mkStr2int e   = Un (Str2int, Just [String, Int])     e (Just [])
@@ -237,20 +228,14 @@ table = [
             mkAnd e1 e2 = Bin (And, Just [Bool, Bool, Bool]) e1 e2 (Just [])
             mkOr e1 e2  = Bin (Or, Just [Bool, Bool, Bool])  e1 e2 (Just [])
             
-            -- FIXME : doivent devenir polymorphe a -> a -> Bool
             mkEquals e1 e2 = Bin (Equals, Just [Int, Int, Bool]) e1 e2 (Just [])
             mkDiff e1 e2   = Bin (Diff, Just [Int, Int, Bool])   e1 e2 (Just [])
 
-            -- FIXME : pareil si on choisi de comparer les chaînes (sinon ajouter
-            -- des opérateurs supplémentaires pour les Floats...)
             mkSup e1 e2   = Bin (Sup, Just [Int, Int, Bool])   e1 e2 (Just [])
             mkInf e1 e2   = Bin (Inf, Just [Int, Int, Bool])   e1 e2 (Just [])
             mkSupEq e1 e2 = Bin (SupEq, Just [Int, Int, Bool]) e1 e2 (Just [])
             mkInfEq e1 e2 = Bin (InfEq, Just [Int, Int, Bool]) e1 e2 (Just [])
 
-            -- FIXME : devrait devenir polymorphe aussi, ou alors on se la jour CamlLight
-            -- avec +., -., ... pour les opérations sur les flottants (car comment définir
-            -- / pour des chaînes ? Et pas envie de gérer des classes, j'en suis loin)
             mkMult e1 e2  = Bin (Mult, Just [Int, Int, Int])  e1 e2 (Just [])
             mkDiv e1 e2   = Bin (Div, Just [Int, Int, Int])   e1 e2 (Just [])
             mkPlus e1 e2  = Bin (Plus, Just [Int, Int, Int])  e1 e2 (Just [])
