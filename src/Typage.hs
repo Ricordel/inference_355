@@ -157,6 +157,31 @@ instance Typed Statement where
     -- l'inférence des arguments, également de simples appels récursifs
     infer_args (Expr e t) = let e' = infer_args e in Expr e' t
 
+
+    -- le fait que les deux branches d'un If aient le même type peut également servir
+    -- FIXME : tous les cas ne sont pas terminés !
+    {-infer_args (If cond (Expr (Var v (Just [])) t_e) c@(Expr (Const _ t_c) _) t_if) =-}
+        {-let cond' = infer_args cond-}
+        {-in-}
+            {-If cond' (Expr (Var v t_c) t_e) c t_if-}
+
+    {-infer_args (If cond c@(Expr (Const _ t_c) _) (Expr (Var v (Just [])) t_e) t_if) =-}
+        {-let cond' = infer_args cond-}
+        {-in-}
+            {-If cond' c (Expr (Var v t_c) t_e) t_if-}
+
+    infer_args (If cond (Expr (Var v (Just [])) t_e) e2 t_if) =
+        let e2' = infer_args e2
+            cond' = infer_args cond
+        in
+            If cond' (Expr (Var v (typeof $ infer_type e2')) t_e) e2' t_if
+
+    infer_args (If cond e1 (Expr (Var v (Just [])) t_e) t_if) =
+        let e1' = infer_args e1
+            cond' = infer_args cond
+        in
+            If cond' (Expr (Var v (typeof $ infer_type e1')) t_e) e1' t_if
+
     infer_args (If cond e1 e2 t) =
         let cond' = infer_args cond
             e1' = infer_args e1
@@ -415,6 +440,7 @@ instance Typed Expr where
         case def of
             -- Attention, les types des variables doivent déjà être inférés
             -- dans la définition examinée
+            Const _ _ -> Just []
             Var name t -> if name == arg then t else Nothing
             Un _ e _ -> type_of_arg e arg
             Bin _ e1 e2 _ -> 

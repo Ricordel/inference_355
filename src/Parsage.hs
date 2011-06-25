@@ -232,7 +232,7 @@ table = [
             mkStr2bool e  = Un (Str2bool, Just [String, Bool])   e (Just [])
             mkInt2str e   = Un (Int2str, Just [Int, String])     e (Just [])
             mkFloat2str e = Un (Float2str, Just [Float, String]) e (Just [])
-            mkBool2str e  = Un (Bool2str, Just [Float, String])  e (Just [])
+            mkBool2str e  = Un (Bool2str, Just [Bool, String])  e (Just [])
 
             mkAnd e1 e2 = Bin (And, Just [Bool, Bool, Bool]) e1 e2 (Just [])
             mkOr e1 e2  = Bin (Or, Just [Bool, Bool, Bool])  e1 e2 (Just [])
