@@ -444,9 +444,3 @@ instance Typed Expr where
 
 
 
-main = do
-        file_name : other_args <- getArgs
-        rslt <- parseFromFile stmt file_name
-        case rslt of
-            Left err -> print err
-            Right ast -> (putStrLn (show ast)) >> (putStrLn "\n\n") >> (putStrLn (show $ infer_type ast))
