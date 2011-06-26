@@ -1,0 +1,8 @@
+let max = fun(x, y) :
+	if x < y then y else x
+in
+
+let x = max(4, 5)
+in
+
+int2str (x + 3)

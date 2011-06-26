@@ -1,0 +1,19 @@
+let max = fun(x, y) :
+	if x > y then x else y
+in
+
+let cube = fun(t) :
+	t*t*t
+in
+
+let concat3 = fun(s1, s2, s3) :
+	s1 ++ s2 ++ s3
+in
+
+
+let x = cube(5) in
+
+if max(5, x) < 4 then
+	int2str (max(2, x) * cube(x) + 3)
+else
+	"Ce programme est formidablement utile !"
